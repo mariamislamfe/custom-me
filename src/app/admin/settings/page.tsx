@@ -12,7 +12,7 @@ export default function SettingsPage({ searchParams }: PageProps<"/admin/setting
   return (
     <>
       <AdminBar />
-      <main id="main" className="mx-auto max-w-[900px] px-5 py-10">
+      <main id="main" className="mx-auto max-w-[900px] px-4 py-6 sm:px-5 sm:py-10">
         <PageTitle sub="What custom pieces cost, what personalizing a shop design adds, and the delivery fee for each governorate. Saving updates the store right away.">Prices & delivery</PageTitle>
         <Suspense fallback={<Loading />}>
           <Settings searchParams={searchParams} />

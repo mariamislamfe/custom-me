@@ -15,7 +15,7 @@ export default function AdminProducts({ searchParams }: PageProps<"/admin">) {
   return (
     <>
       <AdminBar />
-      <main id="main" className="mx-auto max-w-[1180px] px-5 py-10">
+      <main id="main" className="mx-auto max-w-[1180px] px-4 py-6 sm:px-5 sm:py-10">
         <Suspense fallback={<Loading what="Loading products…" />}>
           <ProductList searchParams={searchParams} />
         </Suspense>

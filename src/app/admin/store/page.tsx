@@ -11,7 +11,7 @@ export default function StorePage() {
   return (
     <>
       <AdminBar />
-      <main id="main" className="mx-auto max-w-[900px] px-5 py-10">
+      <main id="main" className="mx-auto max-w-[900px] px-4 py-6 sm:px-5 sm:py-10">
         <PageTitle sub="Your InstaPay details, the deposit, the discount for paying it all up front, and your Instagram. Saving updates checkout right away.">Store &amp; payments</PageTitle>
         <div className="mt-8">
           <Suspense fallback={<Loading />}>

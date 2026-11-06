@@ -165,7 +165,7 @@ export function OptionsForm({ pricing }: { pricing: Pricing }) {
         </Card>
       ))}
 
-      <div className="sticky bottom-0 -mx-5 flex flex-wrap items-center gap-3 border-t-2 border-ink bg-paper/95 px-5 py-4 backdrop-blur-sm">
+      <div className="sticky bottom-0 z-10 -mx-4 flex flex-wrap items-center gap-3 border-t-2 border-ink bg-paper/95 px-4 py-3 sm:-mx-5 sm:px-5 sm:py-4 backdrop-blur-sm">
         <button type="submit" className="btn btn-ink" disabled={saving}>
           {saving ? "Saving…" : "Save options"}
         </button>

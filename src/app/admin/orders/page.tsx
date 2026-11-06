@@ -13,7 +13,7 @@ export default function OrdersPage({ searchParams }: PageProps<"/admin/orders">)
   return (
     <>
       <AdminBar />
-      <main id="main" className="mx-auto max-w-[1180px] px-5 py-10">
+      <main id="main" className="mx-auto max-w-[1180px] px-4 py-6 sm:px-5 sm:py-10">
         <Suspense fallback={<Loading what="Loading orders…" />}>
           <OrderList searchParams={searchParams} />
         </Suspense>
@@ -74,29 +74,35 @@ async function OrderList({ searchParams }: { searchParams: PageProps<"/admin/ord
             const hasCustom = o.lines.some((l) => l.custom);
             return (
               <li key={o.id}>
-                <Link href={`/admin/orders/${o.id}`} className="flex flex-wrap items-center gap-x-6 gap-y-2 border-2 border-ink/15 bg-sheet p-4 transition-colors hover:border-ink">
-                  <div className="min-w-[8rem]">
+                {/* Phones: number and total on top, customer below, then the badges. Wider: one row. */}
+                <Link
+                  href={`/admin/orders/${o.id}`}
+                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 border-2 border-ink/15 bg-sheet p-4 transition-colors hover:border-ink md:flex md:flex-wrap md:gap-x-6"
+                >
+                  <div className="min-w-0 md:min-w-[8rem]">
                     <p className="font-mono text-lg font-bold">{o.number}</p>
                     <p className="text-sm text-muted">{formatDate(o.createdAt)}</p>
                   </div>
-                  <div className="min-w-0 flex-1">
+                  <p className="text-right font-mono font-bold md:order-last md:ml-auto">{money(o.total)}</p>
+                  <div className="col-span-2 min-w-0 md:flex-1">
                     <p className="truncate font-semibold">{o.customer.name}</p>
-                    <p className="text-sm text-muted">
+                    <p className="truncate text-sm text-muted">
                       {o.customer.phone}, {o.customer.governorate}
                     </p>
                   </div>
-                  <p className="text-sm">
-                    {items} {items === 1 ? "piece" : "pieces"}
-                    {hasCustom && <span className="ml-2 bg-mint px-2 py-0.5 text-xs font-bold">Custom design</span>}
-                  </p>
-                  <p className="font-mono font-bold">{money(o.total)}</p>
-                  {o.promo && <Badge tone="bg-mint-soft">{o.promo.code}</Badge>}
-                  {deposit && (
-                    <Badge tone={deposit.tone}>
-                      {o.payment === "instapay-full" ? "Paid in full" : "Deposit"}: {deposit.label.toLowerCase()}
-                    </Badge>
-                  )}
-                  <Badge tone={status.tone}>{status.label}</Badge>
+                  <div className="col-span-2 flex flex-wrap items-center gap-2">
+                    <span className="text-sm">
+                      {items} {items === 1 ? "piece" : "pieces"}
+                    </span>
+                    {hasCustom && <span className="bg-mint px-2 py-0.5 text-xs font-bold">Custom design</span>}
+                    {o.promo && <Badge tone="bg-mint-soft">{o.promo.code}</Badge>}
+                    {deposit && (
+                      <Badge tone={deposit.tone}>
+                        {o.payment === "instapay-full" ? "Paid in full" : "Deposit"}: {deposit.label.toLowerCase()}
+                      </Badge>
+                    )}
+                    <Badge tone={status.tone}>{status.label}</Badge>
+                  </div>
                 </Link>
               </li>
             );

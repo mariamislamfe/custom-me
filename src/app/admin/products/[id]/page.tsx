@@ -13,7 +13,7 @@ export default function EditProductPage({ params }: PageProps<"/admin/products/[
   return (
     <>
       <AdminBar />
-      <main id="main" className="mx-auto max-w-[900px] px-5 py-10">
+      <main id="main" className="mx-auto max-w-[900px] px-4 py-6 sm:px-5 sm:py-10">
         <Suspense fallback={<Loading />}>
           <EditForm params={params} />
         </Suspense>

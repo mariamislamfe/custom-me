@@ -11,7 +11,7 @@ export default function NotificationsPage() {
   return (
     <>
       <AdminBar />
-      <main id="main" className="mx-auto max-w-[760px] px-5 py-10">
+      <main id="main" className="mx-auto max-w-[760px] px-4 py-6 sm:px-5 sm:py-10">
         <h1 className="type-condensed text-5xl">Order notifications</h1>
         <p className="mt-2 max-w-[60ch] opacity-75">
           Get a CUSTOM ME notification on your phone the moment someone places an order. Tapping it opens the order. Set it up once on

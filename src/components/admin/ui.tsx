@@ -21,7 +21,7 @@ export function PageTitle({ children, sub }: { children: ReactNode; sub?: ReactN
 
 export function Card({ title, hint, children, className }: { title?: ReactNode; hint?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <section className={`border-2 border-ink/15 bg-sheet p-5 md:p-6 ${className ?? ""}`}>
+    <section className={`min-w-0 border-2 border-ink/15 bg-sheet p-4 sm:p-5 md:p-6 ${className ?? ""}`}>
       {title && <h2 className="type-condensed text-2xl">{title}</h2>}
       {hint && <p className="mb-4 mt-1 text-sm text-muted">{hint}</p>}
       {title && !hint && <div className="mb-4" />}
@@ -50,7 +50,7 @@ export function FieldError({ msg }: { msg?: string }) {
 
 export function Row({ label, value, href }: { label: string; value: ReactNode; href?: string }) {
   return (
-    <div className="grid grid-cols-[7.5rem_1fr] gap-3">
+    <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-2 sm:grid-cols-[7.5rem_minmax(0,1fr)] sm:gap-3">
       <dt className="font-semibold">{label}</dt>
       <dd className="min-w-0 break-words">
         {href ? (

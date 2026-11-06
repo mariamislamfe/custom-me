@@ -16,7 +16,7 @@ export default function FinancePage({ searchParams }: PageProps<"/admin/finance"
   return (
     <>
       <AdminBar />
-      <main id="main" className="mx-auto max-w-[1180px] px-5 py-10">
+      <main id="main" className="mx-auto max-w-[1180px] px-4 py-6 sm:px-5 sm:py-10">
         <PageTitle sub="Sales are what customers paid for the pieces (delivery fees go to the courier): every website order that isn't cancelled, plus the outside orders you add here. Expenses come off the top.">
           Finance
         </PageTitle>

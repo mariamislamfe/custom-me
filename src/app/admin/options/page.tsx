@@ -11,7 +11,7 @@ export default function OptionsPage() {
   return (
     <>
       <AdminBar />
-      <main id="main" className="mx-auto max-w-[980px] px-5 py-10">
+      <main id="main" className="mx-auto max-w-[980px] px-4 py-6 sm:px-5 sm:py-10">
         <PageTitle sub="The choices for each type of product: laptop sizes, the strap, ruler lengths, notebook sizes and pages (lined, dotted, grid…), with what each one adds to the price. Add, rename, reorder, take out of stock or remove any of them. Saving updates the store right away.">
           Product options
         </PageTitle>

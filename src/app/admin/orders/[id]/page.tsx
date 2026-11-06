@@ -24,7 +24,7 @@ export default function OrderPage({ params }: PageProps<"/admin/orders/[id]">) {
   return (
     <>
       <AdminBar />
-      <main id="main" className="mx-auto max-w-[1180px] px-5 py-10">
+      <main id="main" className="mx-auto max-w-[1180px] px-4 py-6 sm:px-5 sm:py-10">
         <Suspense fallback={<Loading what="Loading order…" />}>
           <OrderDetail params={params} />
         </Suspense>
@@ -48,24 +48,28 @@ async function OrderDetail({ params }: { params: PageProps<"/admin/orders/[id]">
       <Link href="/admin/orders" className="text-sm font-semibold underline-offset-4 hover:underline">
         ← All orders
       </Link>
-      <div className="mt-3 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="type-display font-mono text-[clamp(2.4rem,6vw,4rem)]">{order.number}</h1>
-          <p className="mt-1 text-muted">
+      <div className="mt-3 flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+        <div className="min-w-0">
+          <h1 className="type-display font-mono text-[clamp(2.2rem,6vw,4rem)]">{order.number}</h1>
+          <p className="mt-1 text-sm text-muted sm:text-base">
             {formatDate(order.createdAt)} · {PAYMENT_LABELS[order.payment] ?? order.payment}
           </p>
         </div>
         <Badge tone={`${status.tone} px-4 py-1.5 text-sm`}>{status.label}</Badge>
       </div>
+      {/* Phones: the status form sits far below the items, so jump straight to it */}
+      <a href="#status" className="btn btn-ink mt-4 w-full lg:hidden">
+        Update status &amp; notes ↓
+      </a>
 
-      <div className="mt-8 grid gap-6 lg:grid-cols-[1.4fr_1fr]">
-        <div className="grid h-fit gap-6">
+      <div className="mt-6 grid gap-4 sm:gap-6 lg:mt-8 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+        <div className="grid h-fit min-w-0 gap-4 sm:gap-6">
           {order.lines.map((line, i) => (
             <LineCard key={i} line={line} index={i} order={order} />
           ))}
         </div>
 
-        <div className="grid h-fit gap-6">
+        <div className="grid h-fit min-w-0 gap-4 sm:gap-6">
           <Card title="Customer">
             <dl className="grid gap-2">
               <Row label="Name" value={c.name} />
@@ -112,9 +116,11 @@ async function OrderDetail({ params }: { params: PageProps<"/admin/orders/[id]">
             )}
           </Card>
 
-          <Card title="Status & notes">
-            <OrderAdminForm order={order} />
-          </Card>
+          <div id="status" className="scroll-mt-32">
+            <Card title="Status & notes">
+              <OrderAdminForm order={order} />
+            </Card>
+          </div>
 
           <DeleteOrderButton id={order.id} number={order.number} />
         </div>
@@ -125,22 +131,29 @@ async function OrderDetail({ params }: { params: PageProps<"/admin/orders/[id]">
 
 function LineCard({ line, index, order }: { line: OrderLine; index: number; order: Order }) {
   return (
-    <section className="border-2 border-ink/15 bg-sheet p-5">
-      <div className="flex flex-wrap items-start gap-4">
-        <div className="relative grid h-36 w-28 shrink-0 place-items-center overflow-hidden bg-paper p-2">
+    <section className="min-w-0 border-2 border-ink/15 bg-sheet p-4 sm:p-5">
+      {/* Phones: picture and name side by side, the details full width below. Wider: details beside the picture. */}
+      <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] items-start gap-x-4 gap-y-3 sm:grid-cols-[7rem_minmax(0,1fr)]">
+        <div className="relative grid h-28 w-[5.5rem] place-items-center overflow-hidden bg-paper p-1.5 sm:row-span-2 sm:h-36 sm:w-28 sm:p-2">
           {line.custom ? (
             <OrderMockup custom={line.custom} category={line.category} className={fitClass(line.category)} />
           ) : line.image ? (
             <Image src={line.image.src} alt="" fill sizes="112px" className="object-contain p-2" />
           ) : null}
         </div>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 self-center sm:self-start">
           <p className="text-sm font-semibold text-muted">
             Item {index + 1}, {categories[line.category].singular}
-            {line.custom && <span className="ml-2 bg-mint px-2 py-0.5 text-xs font-bold text-ink">{line.custom.design ? "Personalized shop design" : line.custom.template ? `Edited design “${line.custom.template.name}”` : "Custom design"}</span>}
           </p>
-          <h2 className="type-condensed mt-1 text-3xl leading-tight">{line.name}</h2>
-          <dl className="mt-2 grid gap-1">
+          {line.custom && (
+            <p className="mt-1 inline-block bg-mint px-2 py-0.5 text-xs font-bold text-ink">
+              {line.custom.design ? "Personalized shop design" : line.custom.template ? `Edited design “${line.custom.template.name}”` : "Custom design"}
+            </p>
+          )}
+          <h2 className="type-condensed mt-1 break-words text-2xl leading-tight sm:text-3xl">{line.name}</h2>
+        </div>
+        <div className="col-span-2 min-w-0 sm:col-span-1 sm:col-start-2">
+          <dl className="grid gap-1">
             {line.options.map((o) => {
               const [k, ...v] = o.split(": ");
               return <Row key={o} label={k} value={v.join(": ")} />;

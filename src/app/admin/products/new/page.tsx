@@ -11,7 +11,7 @@ export default function NewProductPage() {
   return (
     <>
       <AdminBar />
-      <main id="main" className="mx-auto max-w-[900px] px-5 py-10">
+      <main id="main" className="mx-auto max-w-[900px] px-4 py-6 sm:px-5 sm:py-10">
         <PageTitle>Add product</PageTitle>
         <div className="mt-8">
           <Suspense fallback={<Loading />}>
