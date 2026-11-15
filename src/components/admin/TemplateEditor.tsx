@@ -7,7 +7,7 @@ import { SHAPES } from "@/components/products/shapes";
 import { contrastInk, fontOf, lab, luminance, type DesignLayer, type DesignTemplate, type FontId } from "@/config/customization";
 import { categories, type CategoryId } from "@/data/catalog";
 import { prepareUpload } from "@/lib/image";
-import { fitWidth, newImageLayer, newTextLayer } from "@/lib/layers";
+import { fitWidth, layerId, newImageLayer, newTextLayer, photoPlacement } from "@/lib/layers";
 import { uploadFile } from "@/lib/upload";
 import { Card, FieldError, input, smallButton } from "./ui";
 
@@ -27,11 +27,14 @@ export function TemplateEditor({
   ground,
   onBusy,
   error,
+  photo,
 }: {
   category: CategoryId;
   initial?: DesignTemplate;
   /** Starting colour of the piece when there's no template yet */
   ground: string;
+  /** The product's front photo; `auto`: a product with no design yet starts from it */
+  photo?: { src: string; name: string; auto: boolean };
   onBusy: (busy: boolean) => void;
   error?: string;
 }) {
@@ -44,11 +47,40 @@ export function TemplateEditor({
   const [font, setFont] = useState<FontId>("display");
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const uploading = Object.values(status).includes("uploading");
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const uploading = Object.values(status).includes("uploading") || photoBusy;
   useEffect(() => {
     onBusy(uploading);
     return () => onBusy(false);
   }, [onBusy, uploading]);
+
+  /** The product photo as the bottom layer, over the whole print area. */
+  const addPhoto = async (src: string) => {
+    setProblem(null);
+    setPhotoBusy(true);
+    try {
+      const res = await fetch("/api/admin/template", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ photo: src }) });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? "The photo couldn't be used.");
+      const layer: DesignLayer = { id: layerId(), kind: "image", name: "Product photo", ...json, ...photoPlacement(category, json.aspect), x: 0.5, rotation: 0 };
+      setLayers((ls) => (ls.length >= lab.maxLayers ? ls : [layer, ...ls]));
+      setSelectedId(layer.id);
+    } catch (err) {
+      setProblem((err as Error).message);
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
+
+  // A product with no editable design yet starts from its photo, once
+  const tried = useRef(Boolean(initial?.layers.length));
+  useEffect(() => {
+    if (tried.current || !photo?.auto || layers.length) return;
+    tried.current = true;
+    const t = setTimeout(() => void addPhoto(photo.src), 0);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the first photo is there
+  }, [photo?.src, photo?.auto]);
 
   const update = (id: string, patch: Partial<DesignLayer>) => setLayers((ls) => ls.map((l) => (l.id === id ? ({ ...l, ...patch } as DesignLayer) : l)));
   const remove = (id: string) => {
@@ -126,7 +158,7 @@ export function TemplateEditor({
   return (
     <Card
       title="Editable design (for “Customize”)"
-      hint={`Upload the original design file here, not a photo, so a customer who presses “Customize this” gets the design itself and can change it. For the most freedom upload its pieces separately as transparent PNGs (background, each drawing, the lettering) and add the words as text: the customer can then move, resize, delete or recolour each one, and type their own name. Leave this empty to keep the old way (the customer adds things on top of the product photo).`}
+      hint={`The design starts from the product’s own photo, as its bottom layer: add text and pictures on top, and customers who press “Customize this” can change all of it. For the most freedom upload the design’s pieces as transparent PNGs instead (background, each drawing, the lettering) and add the words as text: then each one can be moved, resized, deleted or recoloured. Remove every layer to keep the old way (the customer adds things on top of the product photo).`}
     >
       <input type="hidden" name="template" value={saved.layers.length ? JSON.stringify(saved) : ""} />
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
@@ -151,6 +183,11 @@ export function TemplateEditor({
             <button type="button" className="btn btn-ink btn-sm" onClick={() => fileRef.current?.click()} disabled={layers.length >= lab.maxLayers}>
               Upload design files
             </button>
+            {photo && (
+              <button type="button" className={smallButton} onClick={() => void addPhoto(photo.src)} disabled={photoBusy || layers.length >= lab.maxLayers}>
+                {photoBusy ? "Adding the photo…" : "Use the product photo"}
+              </button>
+            )}
             <span className="text-xs text-muted">
               {lab.uploads.acceptLabel}, up to {lab.uploads.maxMB} MB each
             </span>

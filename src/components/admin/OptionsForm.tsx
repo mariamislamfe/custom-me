@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from "react";
 import { saveOptions, type SettingsState } from "@/app/admin/actions";
-import { categories, categoryOrder, type CategoryId, type Pricing } from "@/data/catalog";
+import { categories, categoryOrder, sizeGroupId, type CategoryId, type Pricing } from "@/data/catalog";
 import { Card, input, smallButton } from "./ui";
 
 type ValueRow = { key: string; id: string; label: string; note: string; extra: string; available: boolean };
@@ -84,7 +84,10 @@ export function OptionsForm({ pricing }: { pricing: Pricing }) {
         >
           {groups[c].length === 0 && <p className="mb-4 text-sm text-muted">No options: it comes one way.</p>}
           <div className="grid gap-5">
-            {groups[c].map((g, gi) => (
+            {groups[c].map((g, gi) => {
+              // Sizes have full prices (on each product, and on the Prices page for Lab pieces), not an extra
+              const sized = g.id === sizeGroupId(c);
+              return (
               <fieldset key={g.key} className="border-2 border-ink/15 p-4">
                 <legend className="sr-only">{g.label || `Option ${gi + 1}`}</legend>
                 <div className="flex flex-wrap items-end gap-2">
@@ -109,11 +112,20 @@ export function OptionsForm({ pricing }: { pricing: Pricing }) {
                   </button>
                 </div>
 
+                {sized && (
+                  <p className="mt-3 bg-mint-soft px-3 py-2 text-sm">
+                    These are the sizes. Each size gets its full price (not an extra): on each product, under “Sizes &amp; prices”, and for pieces designed in the Lab on the{" "}
+                    <a href="/admin/settings" className="font-semibold underline">
+                      Prices
+                    </a>{" "}
+                    page.
+                  </p>
+                )}
                 <ul className="mt-4 grid gap-3">
                   <li aria-hidden className="hidden grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_6rem_5.5rem_auto] gap-2 text-xs font-semibold text-muted sm:grid">
                     <span>Choice</span>
                     <span>Note under it (optional)</span>
-                    <span className="text-right">Extra (EGP)</span>
+                    <span className="text-right">{sized ? "" : "Extra (EGP)"}</span>
                     <span>Offered</span>
                     <span />
                   </li>
@@ -121,10 +133,14 @@ export function OptionsForm({ pricing }: { pricing: Pricing }) {
                     <li key={v.key} className="grid grid-cols-2 items-center gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_6rem_5.5rem_auto]">
                       <input aria-label="Choice" value={v.label} maxLength={40} placeholder="e.g. Dotted" className={`${input} col-span-2 sm:col-span-1`} onChange={(e) => changeValue(c, g.key, v.key, { label: e.target.value })} />
                       <input aria-label={`Note under ${v.label}`} value={v.note} maxLength={120} placeholder="e.g. fits MacBook Air 13" className={`${input} col-span-2 sm:col-span-1`} onChange={(e) => changeValue(c, g.key, v.key, { note: e.target.value })} />
-                      <span className="flex items-center gap-1">
-                        <span className="text-muted">+</span>
-                        <input aria-label={`Extra for ${v.label} (EGP)`} value={v.extra} inputMode="numeric" className={money} onChange={(e) => changeValue(c, g.key, v.key, { extra: e.target.value })} />
-                      </span>
+                      {sized ? (
+                        <span className="text-xs text-muted sm:text-right">Full price per product</span>
+                      ) : (
+                        <span className="flex items-center gap-1">
+                          <span className="text-muted">+</span>
+                          <input aria-label={`Extra for ${v.label} (EGP)`} value={v.extra} inputMode="numeric" className={money} onChange={(e) => changeValue(c, g.key, v.key, { extra: e.target.value })} />
+                        </span>
+                      )}
                       <label className="flex items-center gap-2 text-sm">
                         <input type="checkbox" checked={v.available} onChange={(e) => changeValue(c, g.key, v.key, { available: e.target.checked })} className="size-4 accent-ink" />
                         In stock
@@ -152,7 +168,8 @@ export function OptionsForm({ pricing }: { pricing: Pricing }) {
                   + Add a choice
                 </button>
               </fieldset>
-            ))}
+              );
+            })}
           </div>
           <button
             type="button"

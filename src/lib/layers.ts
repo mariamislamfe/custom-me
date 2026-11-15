@@ -51,6 +51,18 @@ export function fitWidth(category: CategoryId, aspect: number, mode: "fit" | "co
   return clamp(mode === "fit" ? Math.min(1, ratio) : Math.max(1, ratio), ...LIMITS.imageWidth);
 }
 
+/**
+ * Where a product's own photo goes as the bottom layer of its editable design:
+ * stretched to the print area exactly (the photo is already cropped to the
+ * piece). A bag's photo shows the strap above the body: it's laid as wide as
+ * the body and sits on its bottom edge, so the strap falls outside the print area.
+ */
+export function photoPlacement(category: CategoryId, aspect: number): Pick<ImageLayer, "width" | "ratio" | "y"> {
+  const area = areaAspect(category);
+  if (category === "bags" && aspect > area) return { width: 1, y: 1 - aspect / area / 2 };
+  return { width: 1, ratio: area, y: 0.5 };
+}
+
 /** A new upload starts centred, filling most of the print area. */
 export function newImageLayer(category: CategoryId, img: PreparedImage): ImageLayer {
   return { id: layerId(), kind: "image", ...img, width: clamp(fitWidth(category, img.aspect, "fit") * 0.86, ...LIMITS.imageWidth), x: 0.5, y: 0.5, rotation: 0 };

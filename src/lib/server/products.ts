@@ -190,6 +190,7 @@ function parseTemplate(raw: string): DesignTemplate | undefined | string {
         originalWidth: Math.round(num(l.originalWidth, 1, 100000, 1)),
         originalHeight: Math.round(num(l.originalHeight, 1, 100000, 1)),
         width: num(l.width, ...LIMITS.imageWidth, 0.5),
+        ...(l.ratio != null ? { ratio: num(l.ratio, ...LIMITS.imageRatio, 1) } : {}),
       });
     } else if (l.kind === "text") {
       const text = String(l.text ?? "").slice(0, lab.text.maxLength);
@@ -304,6 +305,15 @@ export async function updateProduct(id: string, values: ProductValues) {
   });
   await deletePhotos(removed);
   return result;
+}
+
+/** Gives products (by id) an editable design, keeping everything else as it is. */
+export async function setTemplates(templates: Record<string, DesignTemplate>) {
+  if (!Object.keys(templates).length) return;
+  await mutateProducts((list) => ({
+    list: list.map((p) => (templates[p.id] && !p.template?.layers.length ? { ...p, template: templates[p.id], updatedAt: new Date().toISOString() } : p)),
+    result: null,
+  }));
 }
 
 export async function removeProduct(id: string) {

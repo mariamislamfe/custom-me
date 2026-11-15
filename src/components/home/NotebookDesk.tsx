@@ -32,7 +32,7 @@ export function NotebookDesk({ n }: { n: number }) {
   const colour = purchase.selection.colour;
   const paper = purchase.selection.paper ?? "lined";
   const size = purchase.selection.size ?? "a5";
-  usePreloadArt(items, BOOK_SIZES);
+  const near = usePreloadArt(items, BOOK_SIZES);
   const pick = (i: number) => {
     if (i === index) return;
     // A transition: React renders the next piece in small slices, so the page keeps moving meanwhile
@@ -45,6 +45,7 @@ export function NotebookDesk({ n }: { n: number }) {
 
   return (
     <section
+      ref={near}
       className="relative flex min-h-[calc(100svh-var(--header-h))] flex-col overflow-hidden bg-sheet pb-5 pt-6 md:pt-8 lg:h-[calc(100svh-var(--header-h))] lg:min-h-[640px] lg:pb-8"
       aria-labelledby="design-title"
     >

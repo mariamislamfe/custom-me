@@ -106,7 +106,14 @@ export type ImageLayer = Placement & {
   originalHeight: number;
   /** Width as a fraction of the print area's width */
   width: number;
+  /** Shown height / width once the customer stretched it; unset = the picture's own `aspect` */
+  ratio?: number;
+  /** Proportions unlocked: width and height resize separately */
+  free?: boolean;
 };
+
+/** Height / width an image is shown and printed at (its own, unless stretched). */
+export const shownAspect = (l: Pick<ImageLayer, "aspect" | "ratio">) => l.ratio ?? l.aspect;
 
 export type TextLayer = Placement & {
   kind: "text";
@@ -127,7 +134,15 @@ export type DesignBase = {
   name: string;
   /** The product's front photo (for the colour chosen) */
   image: { src: string; width: number; height: number };
+  /** Its back photo, when it has one: the ground of the back */
+  back?: { src: string; width: number; height: number };
 };
+
+/**
+ * The back of the piece: the front's design repeated, or a design of its own.
+ * Unset = the back is left plain.
+ */
+export type BackSide = { same: true } | { same: false; layers: DesignLayer[] };
 
 /**
  * A shop design's editable original, set up in the dashboard: the colour of
@@ -151,9 +166,37 @@ export interface Customization {
   design?: DesignBase;
   /** Editing a shop design's original (its layers are in `layers`, no photo underneath) */
   template?: TemplateRef;
-  /** Bottom to top */
+  /** The front, bottom to top */
   layers: DesignLayer[];
+  /** The back; unset = left plain */
+  back?: BackSide;
 }
+
+export type Face = "front" | "back";
+
+/** The back's own layers (none when it's plain or repeats the front). */
+export const backLayers = (c: Pick<Customization, "back">) => (c.back && !c.back.same ? c.back.layers : []);
+
+/** Every layer on the piece, front and back. */
+export const allLayers = (c: Pick<Customization, "layers" | "back">) => [...c.layers, ...backLayers(c)];
+
+/**
+ * The back drawn as a piece of its own (same colour, the shop design's back
+ * photo if it has one), so mockups and print files work on it unchanged.
+ */
+export function backFace(c: Customization): Customization {
+  const layers = c.back?.same ? c.layers : backLayers(c);
+  return {
+    base: c.base,
+    baseId: c.baseId,
+    ...(c.template ? { template: c.template } : {}),
+    ...(c.design?.back ? { design: { ...c.design, image: c.design.back } } : {}),
+    layers,
+  };
+}
+
+/** "Same as the front", "Its own design" or "Plain", for summaries. */
+export const backLabel = (c: Pick<Customization, "back">) => (!c.back ? "Plain" : c.back.same ? "Same as the front" : "Its own design");
 
 export const HEX = /^#[0-9a-f]{6}$/i;
 
@@ -183,6 +226,8 @@ export const contrastInk = (base: string) => (luminance(base) < 0.25 ? "#3FE0AE"
 
 export const LIMITS = {
   imageWidth: [0.05, 1.6] as const,
+  /** Shown height / width of a stretched image */
+  imageRatio: [0.02, 50] as const,
   textSize: [0.03, 0.6] as const,
 };
 

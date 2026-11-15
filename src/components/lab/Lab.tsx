@@ -4,7 +4,21 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { categories, optionExtra, optionsFor, type CategoryId } from "@/data/catalog";
-import { colourName, fontOf, lab, LIMITS, luminance, type DesignLayer, type FontId, type ImageLayer } from "@/config/customization";
+import {
+  allLayers,
+  backFace,
+  backLabel,
+  colourName,
+  fontOf,
+  lab,
+  LIMITS,
+  luminance,
+  shownAspect,
+  type Customization,
+  type DesignLayer,
+  type FontId,
+  type ImageLayer,
+} from "@/config/customization";
 import { ProductMockup } from "@/components/products/ProductMockup";
 import { fitClass, SHAPES } from "@/components/products/shapes";
 import { OptionPicker } from "@/components/products/OptionPicker";
@@ -12,20 +26,21 @@ import { PreviewNotice } from "@/components/cart/PreviewNotice";
 import { useStore } from "@/components/store/StoreProvider";
 import { priceText } from "@/lib/format";
 import { ease } from "@/lib/motion";
-import { fitWidth, normalizeAngle } from "@/lib/layers";
+import { areaAspect, clamp, fitWidth, normalizeAngle } from "@/lib/layers";
 import { DesignCanvas, layerTitle } from "./DesignCanvas";
 import { hasHandoff, takeHandoff } from "./handoff";
-import { useLab, type LabState } from "./useLabState";
+import { useLab, type BackMode, type LabState } from "./useLabState";
 import { VisualRadio } from "./Swatches";
 import { ColourPicker } from "./ColourPicker";
 
-type StepId = "object" | "base" | "design" | "review";
+type StepId = "object" | "base" | "design" | "back" | "review";
 type Step = { id: StepId; label: string };
 
 const STEPS: Step[] = [
   { id: "object", label: "Object" },
   { id: "base", label: "Size & colour" },
-  { id: "design", label: "Your design" },
+  { id: "design", label: "Front" },
+  { id: "back", label: "Back" },
   { id: "review", label: "Review" },
 ];
 
@@ -33,7 +48,14 @@ const STEPS: Step[] = [
 const DESIGN_STEPS: Step[] = [
   { id: "base", label: "Options" },
   { id: "design", label: "Add yours" },
+  { id: "back", label: "Back" },
   { id: "review", label: "Review" },
+];
+
+/** The pictures on the piece (and the shop design's photo), to pick a colour from. */
+const picturesOf = (c: Customization) => [
+  ...(c.design ? [{ src: c.design.image.src, name: c.design.name }] : []),
+  ...allLayers(c).flatMap((l) => (l.kind === "image" ? [{ src: l.src, name: l.name }] : [])),
 ];
 
 type L = ReturnType<typeof useLab>;
@@ -63,6 +85,11 @@ export function Lab({ start }: { start: LabState }) {
     setDir(next > step ? 1 : -1);
     setStep(next);
     setAdded(false);
+    // The back step turns the piece round; designing the front turns it back
+    const to = steps[next].id;
+    if (to === "back") L.setFace("back");
+    else if (to === "design" || to === "object") L.setFace("front");
+    L.select(null);
     requestAnimationFrame(() => panelRef.current?.querySelector<HTMLElement>("h2")?.focus({ preventScroll: true }));
   };
 
@@ -71,6 +98,12 @@ export function Lab({ start }: { start: LabState }) {
   const n = at + 1;
   const cat = categories[L.category];
   const [vw, vh] = SHAPES[L.category].vb;
+  const onBack = L.face === "back";
+  // The back only has layers to move when it has a design of its own
+  const backFixed = onBack && !(L.custom.back && !L.custom.back.same);
+  const shown = onBack ? backFace(L.custom) : L.custom;
+  // Front / back switch for the steps that don't design one side
+  const canTurn = Boolean(L.custom.back) && id !== "design" && id !== "back";
 
   const onAdd = () => {
     if (L.addToBag()) setAdded(true);
@@ -84,37 +117,60 @@ export function Lab({ start }: { start: LabState }) {
           <div className="absolute inset-x-4 bottom-11 top-12 [container-type:size] lg:inset-x-12 lg:bottom-14 lg:top-16">
             <AnimatePresence mode="popLayout" initial={false}>
               <motion.div
-                key={L.category}
+                key={`${L.category}-${L.face}`}
                 className="absolute left-1/2 top-1/2"
-                style={{ width: `min(100cqw, calc(100cqh * ${vw / vh}))`, aspectRatio: `${vw} / ${vh}`, x: "-50%", y: "-50%" }}
-                initial={{ opacity: 0, scale: 0.92, rotate: -3 }}
-                animate={{ opacity: 1, scale: 1, rotate: 0 }}
-                exit={{ opacity: 0, scale: 0.92, rotate: 3 }}
+                style={{ width: `min(100cqw, calc(100cqh * ${vw / vh}))`, aspectRatio: `${vw} / ${vh}`, x: "-50%", y: "-50%", transformPerspective: 1400 }}
+                initial={{ opacity: 0, scale: 0.92, rotateY: onBack ? -70 : 70 }}
+                animate={{ opacity: 1, scale: 1, rotateY: 0 }}
+                exit={{ opacity: 0, scale: 0.92, rotateY: onBack ? 70 : -70 }}
                 transition={{ duration: 0.45, ease: ease.snap }}
               >
                 <DesignCanvas
                   category={L.category}
-                  custom={L.custom}
+                  custom={shown}
+                  readOnly={backFixed}
                   selectedId={L.selectedId}
                   onSelect={L.select}
                   onUpdate={L.updateLayer}
                   onRemove={L.removeLayer}
                   status={L.status}
                   showArea={showArea}
-                  title={L.product ? `Preview of ${L.product.name} with your additions` : `Preview of your custom ${cat.singular.toLowerCase()}`}
+                  title={`${onBack ? "Back" : "Front"}: ${L.product ? `preview of ${L.product.name} with your additions` : `preview of your custom ${cat.singular.toLowerCase()}`}`}
                 />
               </motion.div>
             </AnimatePresence>
           </div>
 
           <div className="absolute inset-x-3 top-3 flex items-start justify-between gap-2">
-            <span className="sticker">Live preview</span>
+            {canTurn ? (
+              <div role="group" aria-label="Side shown" className="flex">
+                {(["front", "back"] as const).map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    aria-pressed={L.face === f}
+                    onClick={() => L.setFace(f)}
+                    className={`sticker -ml-0.5 first:ml-0 ${L.face === f ? "!bg-ink !text-mint" : "hover:bg-mint-soft"}`}
+                  >
+                    {f === "front" ? "Front" : "Back"}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <span className="sticker">{onBack ? "The back" : L.custom.back ? "The front" : "Live preview"}</span>
+            )}
             <button type="button" onClick={() => setShowArea((v) => !v)} aria-pressed={showArea} className="sticker hover:bg-mint-soft">
               {showArea ? "Hide" : "Show"} print area
             </button>
           </div>
           <p className="absolute bottom-2 left-3 right-3 font-mono text-[10px] text-muted lg:bottom-3 lg:text-[11px]">
-            {L.custom.layers.length ? "Drag to move · corner to resize · top knob to rotate" : "Illustration of the product. Colours on screen vary slightly from print."}
+            {backFixed
+              ? L.custom.back?.same
+                ? "The back repeats the front. Change the front and the back follows."
+                : "The back is left plain."
+              : shown.layers.length
+                ? "Drag to move · corner to resize · top knob to rotate"
+                : "Illustration of the product. Colours on screen vary slightly from print."}
           </p>
         </div>
       </div>
@@ -154,6 +210,7 @@ export function Lab({ start }: { start: LabState }) {
               {id === "object" && <StepObject L={L} n={n} total={steps.length} />}
               {id === "base" && <StepBase L={L} n={n} total={steps.length} />}
               {id === "design" && <StepDesign L={L} n={n} total={steps.length} initialError={handoffError} />}
+              {id === "back" && <StepBack L={L} n={n} total={steps.length} />}
               {id === "review" && <StepReview L={L} n={n} total={steps.length} goto={(k) => goto(steps.findIndex((s) => s.id === k))} added={added} onAdd={onAdd} />}
             </motion.div>
           </AnimatePresence>
@@ -287,7 +344,9 @@ function StepBase({ L, n, total }: StepProps) {
               ownPrice={g.own && g.values.some((v) => v.price != null) ? (v) => v.price ?? product.price : undefined}
             />
           ))}
-          {editable && !product.colours.length && <ColourPicker label="Colour of the piece" value={L.base} onChange={L.setBase} swatches={lab.baseSwatches} />}
+          {editable && !product.colours.length && (
+            <ColourPicker label="Colour of the piece" value={L.base} onChange={L.setBase} swatches={lab.baseSwatches} pickFrom={picturesOf(L.custom)} />
+          )}
           {!groups.length && !editable && <p className="text-muted">This design comes one way only. Go on to add yours.</p>}
           <div className="border-2 border-dashed border-ink/50 p-4 text-sm">
             <p>
@@ -310,21 +369,94 @@ function StepBase({ L, n, total }: StepProps) {
         {groups.map((g) => (
           <OptionPicker key={g.id} group={g} value={L.selection[g.id]} onChange={(v) => L.setOption(g.id, v)} extra={(v) => optionExtra(pricing, L.category, g.id, v)} />
         ))}
-        <ColourPicker label="Base colour" value={L.base} onChange={L.setBase} swatches={lab.baseSwatches} />
+        <ColourPicker label="Base colour" value={L.base} onChange={L.setBase} swatches={lab.baseSwatches} pickFrom={picturesOf(L.custom)} />
       </div>
     </>
   );
 }
 
 function StepDesign({ L, n, total, initialError }: StepProps & { initialError: string | null }) {
+  return (
+    <>
+      <StepHead
+        n={n}
+        total={total}
+        title={L.product ? (L.custom.template ? "Make it yours." : "Add yours.") : "The front."}
+        hint={
+          L.custom.template
+            ? "Every part of the design is a layer: tap one on the piece to move it, resize it from the corner, turn it from the top knob or delete it. Change the text, or add your name and your own pictures."
+            : L.product
+            ? "Type your name (or anything) and pick its colour, or upload a picture. Drag it into place on the design, resize it from the corner, turn it from the top knob."
+            : "Upload your artwork: it lands on the front of the piece. Drag it into place, resize it from the corner, turn it from the top knob. The back comes next."
+        }
+      />
+      <DesignTools L={L} initialError={initialError} />
+    </>
+  );
+}
+
+const BACK_CHOICES: { mode: BackMode; label: string; hint: string }[] = [
+  { mode: "same", label: "Same as the front", hint: "The front’s design, repeated on the back" },
+  { mode: "own", label: "A different design", hint: "Design the back on its own" },
+  { mode: "plain", label: "Leave it plain", hint: "Just the colour of the piece" },
+];
+
+/** After the front: the back repeats it, gets its own design, or stays plain. */
+function StepBack({ L, n, total }: StepProps) {
+  const mode: BackMode = !L.custom.back ? "plain" : L.custom.back.same ? "same" : "own";
+  const preview = (m: BackMode): Customization =>
+    backFace({ ...L.custom, back: m === "plain" ? undefined : m === "same" ? { same: true } : { same: false, layers: L.custom.back && !L.custom.back.same ? L.custom.back.layers : [] } });
+  return (
+    <>
+      <StepHead n={n} total={total} title="The back." hint="Customize the back too? Repeat the front’s design on it, give it a design of its own, or leave it plain." />
+      <VisualRadio<BackMode>
+        label="The back"
+        options={BACK_CHOICES.map((c) => c.mode)}
+        value={mode}
+        onChange={L.setBackMode}
+        getLabel={(m) => BACK_CHOICES.find((c) => c.mode === m)!.label}
+        className="grid grid-cols-3 gap-2 sm:gap-4"
+        itemClassName="group"
+        render={(m, sel) => {
+          const c = BACK_CHOICES.find((x) => x.mode === m)!;
+          return (
+            <span className={`flex h-full flex-col items-center gap-2 border-2 p-2 transition-colors sm:p-3 ${sel ? "border-ink bg-mint-soft" : "border-rule bg-sheet group-hover:border-ink"}`}>
+              <span className="flex h-20 w-full items-center justify-center sm:h-28">
+                {m === "own" && !(L.custom.back && !L.custom.back.same) ? (
+                  <span className="grid size-12 place-items-center rounded-full border-2 border-dashed border-ink text-2xl font-bold" aria-hidden>
+                    +
+                  </span>
+                ) : (
+                  <ProductMockup category={L.category} artwork="plain" palette="navy-mint" custom={preview(m)} className={fitClass(L.category)} />
+                )}
+              </span>
+              <span className="text-center font-mono text-[10px] font-bold uppercase leading-tight tracking-wider sm:text-xs">{c.label}</span>
+              <span className="hidden text-center text-xs leading-snug text-muted sm:block">{c.hint}</span>
+            </span>
+          );
+        }}
+      />
+      {mode === "own" && (
+        <div className="mt-8 border-t-2 border-dashed border-rule pt-8">
+          <p className="type-label mb-4 text-muted">Design the back</p>
+          <DesignTools L={L} initialError={null} />
+        </div>
+      )}
+      {mode === "same" && <p className="mt-6 text-sm text-muted">The back is printed with exactly what’s on the front. Go back a step to change it.</p>}
+    </>
+  );
+}
+
+function DesignTools({ L, initialError }: { L: L; initialError: string | null }) {
   const [error, setError] = useState<string | null>(initialError);
   const [busy, setBusy] = useState(false);
   const [over, setOver] = useState(false);
   const [text, setText] = useState("");
   const [font, setFont] = useState<FontId>("marker");
   const input = useRef<HTMLInputElement>(null);
-  const full = L.custom.layers.length >= lab.maxLayers;
-  const selected = L.custom.layers.find((l) => l.id === L.selectedId) ?? null;
+  const full = L.layers.length >= lab.maxLayers;
+  const selected = L.layers.find((l) => l.id === L.selectedId) ?? null;
+  const side = L.face === "back" ? "back" : "piece";
 
   const take = async (files: FileList | File[] | null) => {
     const list = [...(files ?? [])];
@@ -355,19 +487,6 @@ function StepDesign({ L, n, total, initialError }: StepProps & { initialError: s
 
   return (
     <>
-      <StepHead
-        n={n}
-        total={total}
-        title={L.product ? (L.custom.template ? "Make it yours." : "Add yours.") : "Your design."}
-        hint={
-          L.custom.template
-            ? "Every part of the design is a layer: tap one on the piece to move it, resize it from the corner, turn it from the top knob or delete it. Change the text, or add your name and your own pictures."
-            : L.product
-            ? "Type your name (or anything) and pick its colour, or upload a picture. Drag it into place on the design, resize it from the corner, turn it from the top knob."
-            : "Upload your artwork: it lands on the piece. Drag it into place, resize it from the corner, turn it from the top knob."
-        }
-      />
-
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -379,7 +498,7 @@ function StepDesign({ L, n, total, initialError }: StepProps & { initialError: s
       >
         <div className="flex flex-wrap items-center gap-4">
           <button type="button" className="btn btn-ink" onClick={() => input.current?.click()} disabled={full || busy}>
-            {busy ? "Reading…" : L.custom.layers.some((l) => l.kind === "image") ? "Add another image" : "Upload your design"}
+            {busy ? "Reading…" : L.layers.some((l) => l.kind === "image") ? "Add another image" : "Upload your design"}
           </button>
           <p className="text-sm text-muted">
             or drop it here. {lab.uploads.acceptLabel}, up to {lab.uploads.maxMB} MB.
@@ -399,11 +518,11 @@ function StepDesign({ L, n, total, initialError }: StepProps & { initialError: s
 
       <div className="mt-6 flex flex-wrap items-end gap-3">
         <div className="min-w-0 flex-1 basis-56">
-          <label htmlFor="lab-text" className="type-label mb-2 block text-muted">
+          <label htmlFor={`lab-text-${L.face}`} className="type-label mb-2 block text-muted">
             Add text (optional)
           </label>
           <input
-            id="lab-text"
+            id={`lab-text-${L.face}`}
             value={text}
             onChange={(e) => setText(e.target.value.slice(0, lab.text.maxLength))}
             onKeyDown={(e) => {
@@ -419,10 +538,10 @@ function StepDesign({ L, n, total, initialError }: StepProps & { initialError: s
             className="w-full border-2 border-ink bg-sheet px-4 py-3 outline-none focus:shadow-[4px_4px_0_#3FE0AE]"
           />
         </div>
-        <label className="sr-only" htmlFor="lab-font">
+        <label className="sr-only" htmlFor={`lab-font-${L.face}`}>
           Lettering
         </label>
-        <select id="lab-font" value={font} onChange={(e) => setFont(e.target.value as FontId)} className="h-[52px] border-2 border-ink bg-sheet px-3 font-mono text-xs font-bold uppercase">
+        <select id={`lab-font-${L.face}`} value={font} onChange={(e) => setFont(e.target.value as FontId)} className="h-[52px] border-2 border-ink bg-sheet px-3 font-mono text-xs font-bold uppercase">
           {lab.text.fonts.map((f) => (
             <option key={f.id} value={f.id}>
               {f.label}
@@ -443,11 +562,11 @@ function StepDesign({ L, n, total, initialError }: StepProps & { initialError: s
       </div>
       {text && !lab.text.allowedPattern.test(text) && <p className="mt-2 text-sm font-semibold text-alert">Some of those characters can’t be printed. Use letters, numbers and basic punctuation.</p>}
 
-      {L.custom.layers.length > 0 && (
+      {L.layers.length > 0 && (
         <div className="mt-8">
-          <p className="type-label mb-3 text-muted">On your piece (top layer last)</p>
+          <p className="type-label mb-3 text-muted">On the {side} (top layer last)</p>
           <ol className="divide-y-2 divide-dashed divide-rule border-y-2 border-ink">
-            {L.custom.layers.map((l, i) => (
+            {L.layers.map((l, i) => (
               <LayerRow key={l.id} L={L} layer={l} index={i} />
             ))}
           </ol>
@@ -463,7 +582,7 @@ function LayerRow({ L, layer, index }: { L: L; layer: DesignLayer; index: number
   const up = L.uploads[layer.id];
   const selected = L.selectedId === layer.id;
   const lowRes = layer.kind === "image" && Math.max(layer.originalWidth, layer.originalHeight) < lab.uploads.recommendedPx;
-  const n = L.custom.layers.length;
+  const n = L.layers.length;
   const small = "grid size-9 place-items-center border-2 border-transparent font-bold hover:border-ink disabled:opacity-25";
   return (
     <li className={`flex items-center gap-3 py-2.5 ${selected ? "bg-mint-soft/60" : ""}`}>
@@ -523,12 +642,58 @@ function Slider({ label, value, min, max, step, onChange, display }: { label: st
 function LayerControls({ L, layer }: { L: L; layer: DesignLayer }) {
   const set = (patch: Partial<DesignLayer>) => L.updateLayer(layer.id, patch);
   const img = layer.kind === "image" ? (layer as ImageLayer) : null;
+  const area = areaAspect(L.category);
+  // Height as a share of the print area's height (widths are shares of its width)
+  const tall = img ? (img.width * shownAspect(img)) / area : 0;
   return (
     <div className="mt-6 border-2 border-ink bg-sheet p-4 shadow-[5px_5px_0_#14215A]">
-      <p className="type-label">Adjust: {layer.kind === "image" ? "your design" : "text"}</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="type-label">Adjust: {layer.kind === "image" ? "your design" : "text"}</p>
+        {img && (
+          <button
+            type="button"
+            role="switch"
+            aria-checked={!img.free}
+            onClick={() => set({ free: !img.free })}
+            className={`chip gap-2 ${img.free ? "" : "!bg-ink !text-mint"}`}
+            title={img.free ? "Width and height change separately" : "Resizing keeps the picture’s proportions"}
+          >
+            <svg viewBox="0 0 24 24" className="size-4" aria-hidden>
+              <rect x="5" y="11" width="14" height="10" rx="2" fill="none" stroke="currentColor" strokeWidth="2.4" />
+              <path d={img.free ? "M8 11V7a4 4 0 0 1 7.6-1.8" : "M8 11V7a4 4 0 0 1 8 0v4"} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+            </svg>
+            {img.free ? "Proportions unlocked" : "Proportions locked"}
+          </button>
+        )}
+      </div>
+      {img?.free && <p className="mt-2 text-xs text-muted">Stretch it from the side and bottom handles on the piece, or with the sliders.</p>}
       <div className="mt-4 grid gap-5 sm:grid-cols-2">
         {img ? (
-          <Slider label="Size" value={img.width} min={LIMITS.imageWidth[0]} max={LIMITS.imageWidth[1]} step={0.01} onChange={(width) => set({ width })} display={`${Math.round(img.width * 100)}%`} />
+          img.free ? (
+            <>
+              <Slider
+                label="Width"
+                value={img.width}
+                min={LIMITS.imageWidth[0]}
+                max={LIMITS.imageWidth[1]}
+                step={0.01}
+                // The height stays put while the width changes
+                onChange={(width) => set({ width, ratio: clamp((img.width * shownAspect(img)) / width, ...LIMITS.imageRatio) })}
+                display={`${Math.round(img.width * 100)}%`}
+              />
+              <Slider
+                label="Height"
+                value={tall}
+                min={0.05}
+                max={1.6}
+                step={0.01}
+                onChange={(h) => set({ ratio: clamp((h * area) / img.width, ...LIMITS.imageRatio) })}
+                display={`${Math.round(tall * 100)}%`}
+              />
+            </>
+          ) : (
+            <Slider label="Size" value={img.width} min={LIMITS.imageWidth[0]} max={LIMITS.imageWidth[1]} step={0.01} onChange={(width) => set({ width })} display={`${Math.round(img.width * 100)}%`} />
+          )
         ) : (
           layer.kind === "text" && (
             <Slider label="Size" value={layer.size} min={LIMITS.textSize[0]} max={LIMITS.textSize[1]} step={0.005} onChange={(size) => set({ size })} display={`${Math.round(layer.size * 100)}`} />
@@ -541,8 +706,10 @@ function LayerControls({ L, layer }: { L: L; layer: DesignLayer }) {
         <Chip onClick={() => set({ rotation: 0 })}>Straighten</Chip>
         {img && (
           <>
-            <Chip onClick={() => set({ width: fitWidth(L.category, img.aspect, "fit"), x: 0.5, y: 0.5, rotation: 0 })}>Fit inside</Chip>
-            <Chip onClick={() => set({ width: fitWidth(L.category, img.aspect, "cover"), x: 0.5, y: 0.5, rotation: 0 })}>Cover the whole piece</Chip>
+            <Chip onClick={() => set({ width: fitWidth(L.category, shownAspect(img), "fit"), x: 0.5, y: 0.5, rotation: 0 })}>Fit inside</Chip>
+            <Chip onClick={() => set({ width: fitWidth(L.category, shownAspect(img), "cover"), x: 0.5, y: 0.5, rotation: 0 })}>Cover the whole piece</Chip>
+            {img.free && <Chip onClick={() => set({ width: 1, ratio: area, x: 0.5, y: 0.5, rotation: 0 })}>Stretch to fill</Chip>}
+            {img.ratio != null && Math.abs(img.ratio - img.aspect) > 0.001 && <Chip onClick={() => set({ ratio: undefined })}>Original proportions</Chip>}
           </>
         )}
       </div>
@@ -567,7 +734,7 @@ function LayerControls({ L, layer }: { L: L; layer: DesignLayer }) {
               </button>
             ))}
           </div>
-          <ColourPicker label="Text colour" value={layer.ink} onChange={(ink) => set({ ink })} swatches={lab.text.inks} />
+          <ColourPicker label="Text colour" value={layer.ink} onChange={(ink) => set({ ink })} swatches={lab.text.inks} pickFrom={picturesOf(L.custom)} />
         </div>
       )}
     </div>
@@ -586,6 +753,7 @@ function StepReview({ L, n, total, goto, added, onAdd }: StepProps & { goto: (st
   const { pricing } = useStore();
   const images = L.custom.layers.filter((l) => l.kind === "image");
   const texts = L.custom.layers.filter((l) => l.kind === "text");
+  const back = L.custom.back && !L.custom.back.same ? L.custom.back.layers : [];
   const rows: { k: string; v: string; step: StepId }[] = [
     ...(L.product
       ? [{ k: "Design", v: L.product.name, step: "base" as const }]
@@ -594,6 +762,11 @@ function StepReview({ L, n, total, goto, added, onAdd }: StepProps & { goto: (st
     ...(L.product && !L.custom.template ? [] : [{ k: "Base colour", v: colourName(L.base), step: "base" as const }]),
     { k: L.product ? "Your picture" : "Your design", v: images.length ? images.map((l) => l.name).join(", ") : "No image", step: "design" },
     { k: "Text", v: texts.length ? texts.map((l) => `“${l.text}”`).join(", ") : "No text", step: "design" },
+    {
+      k: "Back",
+      v: back.length ? `${backLabel(L.custom)}: ${back.map((l) => (l.kind === "image" ? l.name : `“${l.text}”`)).join(", ")}` : backLabel(L.custom),
+      step: "back",
+    },
   ];
   return (
     <>
@@ -620,7 +793,7 @@ function StepReview({ L, n, total, goto, added, onAdd }: StepProps & { goto: (st
           The price of a custom {categories[L.category].singular.toLowerCase()} is on its way, so it can’t be ordered just yet.
         </p>
       )}
-      {!L.custom.layers.length && (
+      {!allLayers(L.custom).length && (
         <p role="status" className="mt-4 border-l-4 border-alert pl-3 text-sm font-semibold">
           {L.product ? "Add your name or a picture first." : "Add your design (or a line of text) first."}
         </p>

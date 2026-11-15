@@ -3,11 +3,13 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { AdminBar } from "@/components/admin/AdminBar";
 import { ProductRowActions } from "@/components/admin/ProductRowActions";
+import { PhotoTemplatesButton } from "@/components/admin/PhotoTemplatesButton";
 import { Badge, Loading, PageTitle } from "@/components/admin/ui";
 import { categories, categoryOrder, ownPrices } from "@/data/catalog";
 import { money } from "@/lib/format";
 import { requireAdmin } from "@/lib/server/auth";
 import { readProducts } from "@/lib/server/products";
+import { photoTemplateFits } from "@/lib/server/template";
 
 export const metadata = { title: "Products" };
 
@@ -31,6 +33,7 @@ async function ProductList({ searchParams }: { searchParams: PageProps<"/admin">
   const live = products.filter((p) => p.published);
   const emptyCategories = categoryOrder.filter((c) => !live.some((p) => p.category === c));
   const unpriced = live.filter((p) => !ownPrices(p)).length;
+  const withoutDesign = products.filter(photoTemplateFits).length;
 
   return (
     <>
@@ -47,6 +50,8 @@ async function ProductList({ searchParams }: { searchParams: PageProps<"/admin">
           The store shows them with “Price soon” and they can&apos;t be ordered until you add a price.
         </p>
       )}
+      {/* Always there, so its "Made 4 designs" note survives the refresh that empties the count */}
+      <PhotoTemplatesButton count={withoutDesign} />
       {emptyCategories.length > 0 && (
         <p className="mb-6 bg-fog px-5 py-3">
           Nothing live yet in {emptyCategories.map((c) => categories[c].label.toLowerCase()).join(", ")}: the homepage skips{" "}

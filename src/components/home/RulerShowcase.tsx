@@ -2,7 +2,7 @@
 
 import { startTransition, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { categories, productViews } from "@/data/catalog";
+import { categories, optionMeasure, productViews } from "@/data/catalog";
 import { FlipButton, ProductArt, usePreloadArt } from "@/components/products/ProductArt";
 import { useStore } from "@/components/store/StoreProvider";
 import { BuyBox } from "@/components/products/BuyBox";
@@ -14,8 +14,6 @@ import { DrawnLine } from "@/components/line/DrawnLine";
 import { ease, spring } from "@/lib/motion";
 import { SectionHead } from "./SectionHead";
 
-/** Case length on screen per ruler length (cm), relative to the 100 cm case. */
-const LENGTH_SCALE: Record<string, number> = { "60": 0.8, "80": 0.9, "100": 1 };
 /** One photo size for the case on the stage, so switching designs reuses what's loaded. */
 const CASE_SIZES = "(min-width: 1024px) 200px, 120px";
 
@@ -26,7 +24,8 @@ const CASE_SIZES = "(min-width: 1024px) 200px, 120px";
  * rack of spines underneath; tap one, swipe the stage or use the arrows.
  */
 export function RulerShowcase({ n: sectionNo }: { n: number }) {
-  const items = useStore().inCategory("ruler-cases");
+  const { inCategory, pricing } = useStore();
+  const items = inCategory("ruler-cases");
   const n = items.length;
   const [index, setIndex] = useState(0);
   const [dir, setDir] = useState(1);
@@ -34,9 +33,11 @@ export function RulerShowcase({ n: sectionNo }: { n: number }) {
   const active = items[index];
   const purchase = usePurchase(active);
   const colour = purchase.selection.colour;
-  const length = purchase.selection.length ?? "100";
-  const scale = LENGTH_SCALE[length] ?? 1;
-  usePreloadArt(items, CASE_SIZES);
+  // The lengths as set in the dashboard: the case grows with the one picked (60 of 100 cm shows at 80%)
+  const measure = optionMeasure(active, pricing, "length", purchase.selection);
+  const length = measure?.label ?? "";
+  const scale = measure ? 0.5 + 0.5 * measure.share : 1;
+  const near = usePreloadArt(items, CASE_SIZES);
 
   const go = (i: number) => {
     const next = ((i % n) + n) % n;
@@ -51,6 +52,7 @@ export function RulerShowcase({ n: sectionNo }: { n: number }) {
 
   return (
     <section
+      ref={near}
       className="relative flex min-h-[calc(100svh-var(--header-h))] flex-col overflow-hidden bg-ink pb-6 pt-6 text-sheet md:pt-8"
       aria-labelledby="rulers-title"
     >
@@ -129,7 +131,7 @@ export function RulerShowcase({ n: sectionNo }: { n: number }) {
                       label={`${active.name} T-ruler case`}
                     />
                   </div>
-                  <Dimension length={length} />
+                  {length && <Dimension length={length} />}
                 </div>
               </motion.div>
             </motion.div>
@@ -229,8 +231,8 @@ export function RulerShowcase({ n: sectionNo }: { n: number }) {
 function Dimension({ length }: { length: string }) {
   const label = (
     <AnimatePresence mode="popLayout" initial={false}>
-      <motion.span key={length} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="block">
-        {length} CM
+      <motion.span key={length} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="block uppercase">
+        {length}
       </motion.span>
     </AnimatePresence>
   );

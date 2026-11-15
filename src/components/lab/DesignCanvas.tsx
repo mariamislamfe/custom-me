@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { LIMITS, type Customization, type DesignLayer } from "@/config/customization";
+import { LIMITS, shownAspect, type Customization, type DesignLayer, type ImageLayer } from "@/config/customization";
 import type { CategoryId } from "@/data/catalog";
 import { ProductMockup, printedText, textStyle } from "@/components/products/ProductMockup";
 import { SHAPES } from "@/components/products/shapes";
@@ -18,6 +18,8 @@ type Props = {
   status?: Record<string, "uploading" | "error">;
   showArea: boolean;
   title: string;
+  /** Just the picture: nothing to move (a plain back, or one that repeats the front) */
+  readOnly?: boolean;
 };
 
 export const layerTitle = (layer: DesignLayer) => (layer.kind === "image" ? `Your design “${layer.name}”` : `Text “${layer.text}”`);
@@ -47,7 +49,7 @@ const SNAP = 0.02;
  * config/customization.ts), so what you place here is what's printed.
  * Fills the box it's given; the Lab sizes that box to the product's shape.
  */
-export function DesignCanvas({ category, custom, selectedId, onSelect, onUpdate, onRemove, status = {}, showArea, title }: Props) {
+export function DesignCanvas({ category, custom, selectedId, onSelect, onUpdate, onRemove, status = {}, showArea, title, readOnly }: Props) {
   const areaRef = useRef<HTMLDivElement>(null);
   const [guides, setGuides] = useState({ v: false, h: false });
   const [vw, vh] = SHAPES[category].vb;
@@ -94,6 +96,28 @@ export function DesignCanvas({ category, custom, selectedId, onSelect, onUpdate,
     });
   };
 
+  /**
+   * Proportions unlocked: a corner sets width and height together, an edge
+   * just one of them. Measured in the layer's own (turned) frame.
+   */
+  const startStretch = (e: ReactPointerEvent, layer: ImageLayer, axis: "both" | "x" | "y") => {
+    const { cx, cy } = centerOf(layer);
+    const W = rect().width;
+    const t = (layer.rotation * Math.PI) / 180;
+    const w0 = layer.width * W;
+    const h0 = w0 * shownAspect(layer);
+    gesture(e, (ev) => {
+      const dx = ev.clientX - cx;
+      const dy = ev.clientY - cy;
+      const lx = Math.abs(dx * Math.cos(t) + dy * Math.sin(t));
+      const ly = Math.abs(-dx * Math.sin(t) + dy * Math.cos(t));
+      const wPx = axis === "y" ? w0 : Math.max(8, 2 * lx);
+      const hPx = axis === "x" ? h0 : Math.max(8, 2 * ly);
+      const width = clamp(wPx / W, ...LIMITS.imageWidth);
+      onUpdate(layer.id, { width, ratio: clamp(hPx / (width * W), ...LIMITS.imageRatio) });
+    });
+  };
+
   const startRotate = (e: ReactPointerEvent, layer: DesignLayer) => {
     const { cx, cy } = centerOf(layer);
     gesture(e, (ev) => {
@@ -137,6 +161,15 @@ export function DesignCanvas({ category, custom, selectedId, onSelect, onUpdate,
 
   const pct = (v: number, of: number) => `${(v / of) * 100}%`;
   const knob = "grid size-8 place-items-center rounded-full bg-ink text-mint shadow-[0_2px_0_rgb(11_20_56/0.35)]";
+  const edge = "absolute rounded-full border-2 border-mint bg-ink shadow-[0_2px_0_rgb(11_20_56/0.35)]";
+
+  if (readOnly) {
+    return (
+      <div className="relative size-full">
+        <ProductMockup category={category} artwork="plain" palette="navy-mint" custom={custom} label={title} className="absolute inset-0 size-full" />
+      </div>
+    );
+  }
 
   return (
     <div className="relative size-full">
@@ -179,7 +212,7 @@ export function DesignCanvas({ category, custom, selectedId, onSelect, onUpdate,
                 transform: `translate(-50%, -50%) rotate(${layer.rotation}deg)`,
                 outlineStyle: selected ? "solid" : "dashed",
                 ...(layer.kind === "image"
-                  ? { width: `${layer.width * 100}%`, aspectRatio: `1 / ${layer.aspect}` }
+                  ? { width: `${layer.width * 100}%`, aspectRatio: `1 / ${shownAspect(layer)}` }
                   : { ...textStyle(layer.font), fontSize: `${layer.size * 100}cqw`, lineHeight: 1, color: "transparent" }),
               }}
             >
@@ -203,12 +236,24 @@ export function DesignCanvas({ category, custom, selectedId, onSelect, onUpdate,
                     </span>
                     <span className="h-4 w-0.5 bg-ink" />
                   </span>
-                  {/* resize knob */}
-                  <span aria-hidden onPointerDown={(e) => startResize(e, layer)} className={`absolute -bottom-4 -right-4 cursor-nwse-resize ${knob}`} style={{ fontSize: 16 }}>
+                  {/* resize knob: keeps the proportions, unless they're unlocked */}
+                  <span
+                    aria-hidden
+                    onPointerDown={(e) => (layer.kind === "image" && layer.free ? startStretch(e, layer, "both") : startResize(e, layer))}
+                    className={`absolute -bottom-4 -right-4 cursor-nwse-resize ${knob}`}
+                    style={{ fontSize: 16 }}
+                  >
                     <svg viewBox="0 0 24 24" className="size-4">
                       <path d="M7 17 17 7M11 7h6v6M13 17H7v-6" stroke="currentColor" strokeWidth="2.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </span>
+                  {/* unlocked: stretch the width or the height on its own */}
+                  {layer.kind === "image" && layer.free && (
+                    <>
+                      <span aria-hidden onPointerDown={(e) => startStretch(e, layer, "x")} className={`${edge} -right-2 top-1/2 h-9 w-4 -translate-y-1/2 cursor-ew-resize`} />
+                      <span aria-hidden onPointerDown={(e) => startStretch(e, layer, "y")} className={`${edge} -bottom-2 left-1/2 h-4 w-9 -translate-x-1/2 cursor-ns-resize`} />
+                    </>
+                  )}
                   {/* remove */}
                   <button
                     type="button"

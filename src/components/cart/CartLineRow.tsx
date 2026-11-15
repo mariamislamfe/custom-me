@@ -79,9 +79,16 @@ export function CartLineRow({ line, compact, onNavigate }: { line: CartLine; com
           ))}
           {line.custom?.layers.map((l) => (
             <li key={l.id} className="truncate">
+              {line.custom?.back ? "Front · " : ""}
               {l.kind === "image" ? `Your design: ${l.name}` : `Text: “${l.text}”`}
             </li>
           ))}
+          {line.custom?.back && !line.custom.back.same &&
+            line.custom.back.layers.map((l) => (
+              <li key={l.id} className="truncate">
+                Back · {l.kind === "image" ? `Your design: ${l.name}` : `Text: “${l.text}”`}
+              </li>
+            ))}
         </ul>
         <div className="mt-auto flex items-center justify-between gap-3 pt-3">
           <QtyStepper line={line} compact={compact} />

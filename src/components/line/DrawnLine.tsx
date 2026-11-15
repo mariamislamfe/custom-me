@@ -60,15 +60,23 @@ export function DrawnLine({
       // every scroll frame is slow on long lines.
       let pts: Float32Array = new Float32Array(0);
       const state = { t: 0 };
-      // Phones and touch screens get the line already drawn: drawing it along
-      // with the scroll repaints a section-sized picture on every frame.
-      const reduced = prefersReducedMotion() || window.matchMedia("(max-width: 767px), (pointer: coarse)").matches;
+      // Only "reduce motion" gets the line already drawn; phones draw it with the scroll too
+      const reduced = prefersReducedMotion();
+      // Touch scrolling is already smooth (momentum), so a shorter catch-up keeps the pen under the finger
+      const touch = window.matchMedia("(pointer: coarse)").matches;
 
+      // What was last painted: a scroll frame that moves the pen less than half a pixel paints nothing
+      let shownOffset = -1;
+      let shownNib = "";
       const draw = (t: number) => {
         if (!len) return;
-        p.style.strokeDashoffset = String(len * (1 - t));
+        const offset = Math.round(len * (1 - t) * 2) / 2;
         const visible = !reduced && t > 0.002 && t < 0.998;
-        n.style.opacity = visible ? "1" : "0";
+        const nib = visible ? "1" : "0";
+        if (offset === shownOffset && nib === shownNib) return;
+        shownOffset = offset;
+        if (nib !== shownNib) n.style.opacity = shownNib = nib;
+        p.style.strokeDashoffset = String(offset);
         if (visible && pts.length) {
           // Between two sampled points
           const f = t * (pts.length / 2 - 1);
@@ -98,6 +106,7 @@ export function DrawnLine({
         };
         p.setAttribute("d", build(ctx));
         len = p.getTotalLength();
+        shownOffset = -1;
         p.style.strokeDasharray = `${len} ${len}`;
         if (reduced) {
           draw(1);
@@ -131,7 +140,7 @@ export function DrawnLine({
         t: 1,
         ease: "none",
         onUpdate: () => draw(state.t),
-        scrollTrigger: { trigger: section, start, end, scrub: 0.6 },
+        scrollTrigger: { trigger: section, start, end, scrub: touch ? 0.3 : 0.6 },
       });
 
       ScrollTrigger.addEventListener("refreshInit", measure);
@@ -164,7 +173,8 @@ export function DrawnLine({
 
   const stroke = tone === "mint" ? "#3FE0AE" : "#14215A";
   return (
-    <svg ref={svg} aria-hidden className="pointer-events-none absolute inset-0 z-[5] h-full w-full overflow-visible">
+    // Its own layer: drawing the line repaints only the line, not the section under it
+    <svg ref={svg} aria-hidden className="pointer-events-none absolute inset-0 z-[5] h-full w-full overflow-visible" style={{ willChange: "transform" }}>
       <path
         ref={path}
         fill="none"

@@ -9,7 +9,7 @@ import { fitClass } from "@/components/products/shapes";
 import { DeleteOrderButton } from "@/components/admin/DeleteOrderButton";
 import { OrderAdminForm } from "@/components/admin/OrderAdminForm";
 import { Badge, Card, Loading, Row } from "@/components/admin/ui";
-import { baseColour, colourName, fontOf, lab, type DesignLayer } from "@/config/customization";
+import { backFace, baseColour, colourName, fontOf, lab, shownAspect, type Customization, type DesignLayer } from "@/config/customization";
 import { DEPOSIT_STATUSES, ORDER_STATUSES } from "@/config/orders";
 import { PAYMENT_LABELS } from "@/config/payments";
 import { categories, type CategoryId } from "@/data/catalog";
@@ -178,48 +178,72 @@ function LineCard({ line, index, order }: { line: OrderLine; index: number; orde
 
       {line.custom && (
         <div className="mt-5 border-t-2 border-dashed border-ink/15 pt-5">
-          <DesignFiles custom={line.custom} category={line.category} fileName={`${order.number}-item${index + 1}-print.png`} />
-          <h3 className="mt-6 flex flex-wrap items-center gap-2 font-semibold">
-            Layers, bottom to top ·{" "}
-            {line.custom.design ? (
-              <>printed on top of the design “{line.custom.design.name}”</>
-            ) : (
-              <>
-                base colour <span aria-hidden className="inline-block size-4 border-2 border-ink" style={{ background: baseColour(line.custom) }} />
-                {colourName(baseColour(line.custom))}
-                <CopyButton value={baseColour(line.custom)} label="colour code" />
-              </>
-            )}
-          </h3>
-          <ol className="mt-2 grid gap-3">
-            {line.custom.layers.map((layer, k) => (
-              <li key={layer.id} className="bg-paper p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="font-semibold">
-                    Layer {k + 1}: {layer.kind === "image" ? `Image “${layer.name}”` : `Text “${layer.text}”`}
-                  </p>
-                  {layer.kind === "image" && layer.fileId && (
-                    <a
-                      href={`/api/admin/designs/${layer.fileId}?download=${encodeURIComponent(`${order.number}-${layer.name.replace(/\.[^.]+$/, "")}.${layer.fileId.split(".").pop()}`)}`}
-                      className="bg-ink px-3 py-1.5 text-xs font-bold text-sheet"
-                      title="The file exactly as uploaded, before the customer resized or moved it"
-                    >
-                      Download original upload
-                    </a>
-                  )}
-                  {layer.kind === "text" && <CopyButton value={layer.text} label="text" />}
-                </div>
-                <dl className="mt-1.5 grid gap-0.5 text-sm">
-                  {describePlacement(layer, line.category).map((r) => (
-                    <Row key={r.k} label={r.k} value={r.v} />
-                  ))}
-                </dl>
-              </li>
-            ))}
-          </ol>
+          {line.custom.back && <h3 className="type-condensed mb-3 text-2xl">Front</h3>}
+          {line.custom.layers.length ? (
+            <SideDetails custom={line.custom} category={line.category} order={order} fileName={`${order.number}-item${index + 1}-print.png`} />
+          ) : (
+            <p className="bg-paper p-3 text-sm">Nothing added on the front: it stays as it is.</p>
+          )}
+          {line.custom.back && (
+            <div className="mt-8 border-t-2 border-dashed border-ink/15 pt-5">
+              <h3 className="type-condensed mb-3 text-2xl">Back</h3>
+              {line.custom.back.same ? (
+                <p className="bg-mint-soft p-3 font-semibold">Same as the front: print the front’s ready-to-print design on the back too.</p>
+              ) : (
+                <SideDetails custom={backFace(line.custom)} category={line.category} order={order} fileName={`${order.number}-item${index + 1}-back-print.png`} />
+              )}
+            </div>
+          )}
         </div>
       )}
     </section>
+  );
+}
+
+/** One side of a custom piece: its two pictures and its layers, bottom to top. */
+function SideDetails({ custom, category, order, fileName }: { custom: Customization; category: CategoryId; order: Order; fileName: string }) {
+  return (
+    <>
+      <DesignFiles custom={custom} category={category} fileName={fileName} />
+      <h3 className="mt-6 flex flex-wrap items-center gap-2 font-semibold">
+        Layers, bottom to top ·{" "}
+        {custom.design ? (
+          <>printed on top of the design “{custom.design.name}”</>
+        ) : (
+          <>
+            base colour <span aria-hidden className="inline-block size-4 border-2 border-ink" style={{ background: baseColour(custom) }} />
+            {colourName(baseColour(custom))}
+            <CopyButton value={baseColour(custom)} label="colour code" />
+          </>
+        )}
+      </h3>
+      <ol className="mt-2 grid gap-3">
+        {custom.layers.map((layer, k) => (
+          <li key={layer.id} className="bg-paper p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="font-semibold">
+                Layer {k + 1}: {layer.kind === "image" ? `Image “${layer.name}”` : `Text “${layer.text}”`}
+              </p>
+              {layer.kind === "image" && layer.fileId && (
+                <a
+                  href={`/api/admin/designs/${layer.fileId}?download=${encodeURIComponent(`${order.number}-${layer.name.replace(/\.[^.]+$/, "")}.${layer.fileId.split(".").pop()}`)}`}
+                  className="bg-ink px-3 py-1.5 text-xs font-bold text-sheet"
+                  title="The file exactly as uploaded, before the customer resized or moved it"
+                >
+                  Download original upload
+                </a>
+              )}
+              {layer.kind === "text" && <CopyButton value={layer.text} label="text" />}
+            </div>
+            <dl className="mt-1.5 grid gap-0.5 text-sm">
+              {describePlacement(layer, category).map((r) => (
+                <Row key={r.k} label={r.k} value={r.v} />
+              ))}
+            </dl>
+          </li>
+        ))}
+      </ol>
+    </>
   );
 }
 
@@ -235,9 +259,11 @@ function describePlacement(layer: DesignLayer, category: CategoryId) {
   if (area) {
     rows.push({ k: "Centre", v: `${cm(layer.x * area.width)} from left, ${cm(layer.y * area.height)} from top` });
     rows.push({ k: sizeLabel, v: cm(size * area.width) });
+    if (layer.kind === "image" && layer.ratio != null) rows.push({ k: "Height (stretched)", v: cm(layer.width * shownAspect(layer) * area.width) });
   } else {
     rows.push({ k: "Centre", v: `${pct(layer.x)} from left, ${pct(layer.y)} from top of the print area` });
     rows.push({ k: sizeLabel, v: `${pct(size)} of the print area's width` });
+    if (layer.kind === "image" && layer.ratio != null) rows.push({ k: "Height (stretched)", v: `${pct(layer.width * shownAspect(layer))} of the print area's width` });
   }
   rows.push({ k: "Rotation", v: `${Math.round(layer.rotation)}°` });
   if (layer.kind === "text") {

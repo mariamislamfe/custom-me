@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
-import { baseColour, lab, type Customization } from "@/config/customization";
+import { baseColour, lab, shownAspect, type Customization } from "@/config/customization";
 import { PRINT_DPI, PRINT_FILE_DEFAULT_WIDTH_PX } from "@/config/orders";
 import type { CategoryId } from "@/data/catalog";
 import { ProductMockup, printedText } from "@/components/products/ProductMockup";
@@ -51,7 +51,7 @@ async function renderPrintFile(custom: Customization, category: CategoryId) {
     if (layer.kind === "image") {
       const img = await loadImage(layer.src);
       const w = layer.width * W;
-      const h = w * layer.aspect;
+      const h = w * shownAspect(layer);
       ctx.drawImage(img, -w / 2, -h / 2, w, h);
     } else {
       const family = root.getPropertyValue(FONT_VAR[layer.font]).trim() || "sans-serif";

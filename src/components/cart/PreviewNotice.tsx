@@ -1,6 +1,6 @@
 "use client";
 
-import { depositEnabled } from "@/config/payments";
+import { depositEnabled, depositText } from "@/config/payments";
 import { useStore } from "@/components/store/StoreProvider";
 
 /** How paying works, shown in the bag and the Lab. */
@@ -13,9 +13,12 @@ export function PreviewNotice({ compact }: { compact?: boolean }) {
         ? "You pay when your order arrives."
         : pay.allowCod
           ? `Pay when it arrives, or by InstaPay${pay.fullPaymentDiscountPercent ? ` (${pay.fullPaymentDiscountPercent}% off when you pay it all now)` : ""}.`
-          : pay.depositPerPiece > 0
-            ? `A deposit of EGP ${pay.depositPerPiece} per piece by InstaPay confirms your order; the rest is paid on delivery.`
-            : "Your order is paid by InstaPay when you place it."}{" "}
+          : `A deposit by InstaPay confirms your order (${[
+              pay.depositIsDelivery ? "the delivery fee for ready-made products" : pay.readyDeposit.value > 0 && `${depositText(pay.readyDeposit)} for ready-made products`,
+              pay.customDeposit.value > 0 && `${depositText(pay.customDeposit)} for custom pieces`,
+            ]
+              .filter(Boolean)
+              .join(", ")}); the rest is paid on delivery.`}{" "}
       The delivery fee for your governorate is added at checkout.
     </p>
   );

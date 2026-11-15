@@ -2,8 +2,16 @@ import Link from "next/link";
 import { site } from "@/config/site";
 import { Logo } from "@/components/brand/Logo";
 import { NAV } from "@/config/nav";
+import { whatsappLink } from "@/lib/contact";
+import type { StoreInfo } from "@/lib/server/settings";
 
-export function Footer({ instagram, instagramHandle }: { instagram: string; instagramHandle: string }) {
+export function Footer({ store }: { store: StoreInfo }) {
+  const social = [
+    store.instagram && { href: store.instagram, label: `Instagram ${store.instagramHandle}`.trim() },
+    store.facebook && { href: store.facebook, label: "Facebook" },
+    store.tiktok && { href: store.tiktok, label: "TikTok" },
+    store.whatsapp && { href: whatsappLink(store.whatsapp), label: "WhatsApp" },
+  ].filter((s): s is { href: string; label: string } => Boolean(s));
   return (
     <footer className="grain relative overflow-hidden bg-ink text-sheet">
       <div className="gutter relative z-[2] grid gap-12 py-16 md:grid-cols-[1.4fr_1fr_1fr] md:py-20">
@@ -54,13 +62,13 @@ export function Footer({ instagram, instagramHandle }: { instagram: string; inst
                 Your bag
               </Link>
             </li>
-            {instagram && (
-              <li>
-                <a href={instagram} target="_blank" rel="noreferrer" className="hover:text-mint">
-                  Instagram {instagramHandle}
+            {social.map((s) => (
+              <li key={s.label}>
+                <a href={s.href} target="_blank" rel="noreferrer" className="hover:text-mint">
+                  {s.label}
                 </a>
               </li>
-            )}
+            ))}
           </ul>
           <p className="mt-8 max-w-xs text-sm text-sheet/70">
             Product visuals on this site are illustrative renders of each design.

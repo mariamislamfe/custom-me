@@ -1,7 +1,7 @@
 "use client";
 
 import Image, { getImageProps } from "next/image";
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useState, useSyncExternalStore } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { productViews, type Product, type ProductImage } from "@/data/catalog";
 import { ProductMockup } from "./ProductMockup";
@@ -140,9 +140,15 @@ function Face({
   );
 }
 
+const never = () => () => {};
+
 /** Fades in once loaded instead of popping in line by line (preloaded, above-the-fold photos just show). */
 function Photo({ img, sizes, preload, eager, drop }: { img: ProductImage; sizes: string; preload?: boolean; eager?: boolean; drop: boolean }) {
   const [loaded, setLoaded] = useState(Boolean(preload));
+  // An eager image in the page's HTML becomes a top-priority preload of the whole page (dozens of
+  // carousel photos ahead of the first screen). So "eager" ones start lazy and switch once the
+  // page is up, at low priority: only `preload` photos are fetched first.
+  const hydrated = useSyncExternalStore(never, () => true, () => false);
   return (
     <Image
       src={img.src}
@@ -151,7 +157,8 @@ function Photo({ img, sizes, preload, eager, drop }: { img: ProductImage; sizes:
       sizes={sizes}
       quality={90}
       preload={preload}
-      loading={preload || eager ? "eager" : undefined}
+      loading={preload || (eager && hydrated) ? "eager" : "lazy"}
+      fetchPriority={preload ? undefined : eager ? "low" : undefined}
       draggable={false}
       onLoad={() => setLoaded(true)}
       className={`object-contain transition-opacity duration-500 ${loaded ? "opacity-100" : "opacity-0"} ${drop && img.cutout ? "drop-shadow-[0_14px_18px_rgb(11_20_56/0.22)]" : ""}`}
@@ -189,8 +196,12 @@ export function FlipButton({
 /**
  * Fetch products' photos ahead of time at the size a stage shows them, so
  * picking another one swaps instantly instead of loading then.
+ * Attach the returned ref to the section: its photos are then fetched only
+ * once it comes near the screen, so a visitor who never scrolls there
+ * doesn't download them (phones on mobile data most of all).
  */
 export function usePreloadArt(products: Product[], sizes: string) {
+  const [section, setSection] = useState<Element | null>(null);
   const srcs = products
     .flatMap((p) => {
       const { front, back } = productViews(p);
@@ -201,8 +212,7 @@ export function usePreloadArt(products: Product[], sizes: string) {
     .join(" ");
   useEffect(() => {
     if (!srcs) return;
-    // After the page has settled: the photos on screen come first
-    const id = window.setTimeout(() => {
+    const fetchAll = () => {
       for (const src of srcs.split(" ")) {
         const { props } = getImageProps({ src, alt: "", fill: true, sizes, quality: 90 });
         const img = new window.Image();
@@ -210,7 +220,30 @@ export function usePreloadArt(products: Product[], sizes: string) {
         if (props.srcSet) img.srcset = props.srcSet;
         img.src = props.src;
       }
-    }, 1200);
-    return () => window.clearTimeout(id);
-  }, [srcs, sizes]);
+    };
+    // After the page has settled: the photos on screen come first
+    let id = 0;
+    const later = () => {
+      id = window.setTimeout(fetchAll, 1200);
+    };
+    if (!section || typeof IntersectionObserver === "undefined") {
+      later();
+      return () => window.clearTimeout(id);
+    }
+    // Within a screen's height of the section
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        io.disconnect();
+        id = window.setTimeout(fetchAll, 300);
+      },
+      { rootMargin: "100% 0px" },
+    );
+    io.observe(section);
+    return () => {
+      io.disconnect();
+      window.clearTimeout(id);
+    };
+  }, [srcs, sizes, section]);
+  return setSection;
 }

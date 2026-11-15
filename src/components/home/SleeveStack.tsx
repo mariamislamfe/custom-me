@@ -2,7 +2,7 @@
 
 import { startTransition, useEffect, useState } from "react";
 import { AnimatePresence, animate, motion, useMotionValue, type Easing } from "motion/react";
-import { categories, productViews, type Product } from "@/data/catalog";
+import { categories, optionMeasure, productViews, type Product } from "@/data/catalog";
 import { FlipButton, ProductArt, usePreloadArt } from "@/components/products/ProductArt";
 import { useStore } from "@/components/store/StoreProvider";
 import { BuyBox } from "@/components/products/BuyBox";
@@ -14,9 +14,6 @@ import { FitName } from "@/components/products/FitName";
 import { ease, spring } from "@/lib/motion";
 import { SectionHead } from "./SectionHead";
 
-/** Sleeve size on screen per laptop size, relative to the 15.6" one. */
-const SIZE_SCALE: Record<string, number> = { "13": 0.86, "14": 0.92, "15": 1 };
-const INCHES: Record<string, string> = { "13": "13″", "14": "14″", "15": "15.6″" };
 /** How many sleeves show behind the one on top. */
 const DEPTH = 4;
 /** A loose pile: each sleeve sits a little askew. */
@@ -28,19 +25,22 @@ const SIZES = "(min-width: 1024px) 40vw, 80vw";
  * "YOUR WORLD." — laptop sleeves in a loose pile, like records in a crate:
  * the one on top shows in full, the next ones peek out behind it. Flip
  * through with the arrows, a swipe or the list; the sleeve on top grows to
- * the laptop size picked, measured corner to corner like a laptop screen.
+ * the laptop size picked, with its size marked across its width.
  */
 export function SleeveStack({ n: sectionNo }: { n: number }) {
-  const items = useStore().inCategory("sleeves");
+  const { inCategory, pricing } = useStore();
+  const items = inCategory("sleeves");
   const n = items.length;
   const [index, setIndex] = useState(0);
   const [face, setFace] = useState<"front" | "back">("front");
   const active = items[index];
   const purchase = usePurchase(active);
   const colour = purchase.selection.colour;
-  const size = purchase.selection.size ?? "15";
+  // The laptop sizes as set in the dashboard: the sleeve grows with the one picked
+  const measure = optionMeasure(active, pricing, "size", purchase.selection);
+  const scale = measure ? 0.2 + 0.8 * measure.share : 1;
   const cat = categories.sleeves;
-  usePreloadArt(items.slice(0, DEPTH + 2), SIZES);
+  const near = usePreloadArt(items.slice(0, DEPTH + 2), SIZES);
 
   const go = (i: number) => {
     const next = ((i % n) + n) % n;
@@ -54,6 +54,7 @@ export function SleeveStack({ n: sectionNo }: { n: number }) {
 
   return (
     <section
+      ref={near}
       className="relative flex min-h-[calc(100svh-var(--header-h))] flex-col overflow-hidden bg-mint-soft pb-8 pt-6 md:pt-8 lg:min-h-[max(640px,calc(100svh-var(--header-h)))]"
       aria-labelledby="sleeves-title"
     >
@@ -114,14 +115,14 @@ export function SleeveStack({ n: sectionNo }: { n: number }) {
                 product={p}
                 depth={(i - index + n) % n}
                 i={i}
-                scale={SIZE_SCALE[size] ?? 1}
+                scale={scale}
                 colour={i === index ? colour : undefined}
                 face={i === index ? face : "front"}
                 onPick={() => go(i)}
                 onSwipe={(d) => go(index + d)}
               />
             ))}
-            <Diagonal inches={INCHES[size] ?? ""} scale={SIZE_SCALE[size] ?? 1} />
+            {measure && <Width label={measure.label} scale={scale} />}
           </div>
           <div className="mt-2 flex items-center justify-center gap-3">
             <button type="button" className="btn btn-paper btn-sm" onClick={() => go(index - 1)} aria-label="Previous sleeve">
@@ -248,7 +249,8 @@ function Card({
   return (
     <motion.div
       className="absolute left-1/2 top-[56%] -translate-x-1/2 -translate-y-1/2"
-      style={{ width: CARD_W, zIndex: z, pointerEvents: shown ? "auto" : "none" }}
+      // Each sleeve in view on a layer of its own: the pile moves without redrawing the photos (and their shade)
+      style={{ width: CARD_W, zIndex: z, pointerEvents: shown ? "auto" : "none", willChange: shown ? "transform" : undefined }}
       initial={false}
       animate={target}
       transition={transition}
@@ -257,8 +259,9 @@ function Card({
       dragElastic={0.3}
       dragConstraints={{ left: 0, right: 0 }}
       onDragEnd={(_, info) => {
-        if (info.offset.x < -60 || info.velocity.x < -450) onSwipe(1);
-        else if (info.offset.x > 60 || info.velocity.x > 450) onSwipe(-1);
+        // Pushed to the right: it goes out that way and tucks in at the back (the way the arrows send it). To the left: the last one comes back on top.
+        if (info.offset.x > 60 || info.velocity.x > 450) onSwipe(1);
+        else if (info.offset.x < -60 || info.velocity.x < -450) onSwipe(-1);
       }}
       onClick={() => !top && onPick()}
       aria-hidden={!top}
@@ -274,8 +277,8 @@ function Card({
   );
 }
 
-/** Laptop sizes are measured corner to corner: so is the sleeve on top. */
-function Diagonal({ inches, scale }: { inches: string; scale: number }) {
+/** The size picked, marked across the sleeve's width like a measuring line. */
+function Width({ label, scale }: { label: string; scale: number }) {
   return (
     <motion.div
       aria-hidden
@@ -285,23 +288,23 @@ function Diagonal({ inches, scale }: { inches: string; scale: number }) {
       animate={{ scale }}
       transition={spring}
     >
-      <svg className="absolute inset-[3%] h-[94%] w-[94%] overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none">
-        <line x1="2" y1="98" x2="98" y2="2" stroke="#3FE0AE" strokeWidth="2" strokeDasharray="5 4" vectorEffect="non-scaling-stroke" />
-        <circle cx="2" cy="98" r="1.4" fill="#3FE0AE" />
-        <circle cx="98" cy="2" r="1.4" fill="#3FE0AE" />
-      </svg>
-      <AnimatePresence mode="popLayout" initial={false}>
-        <motion.span
-          key={inches}
-          className="absolute left-[76%] top-[24%] -translate-x-1/2 -translate-y-1/2 bg-ink px-2.5 py-1 font-mono text-sm font-bold text-mint"
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          exit={{ opacity: 0, scale: 0.8 }}
-          transition={{ duration: 0.25 }}
-        >
-          {inches}
-        </motion.span>
-      </AnimatePresence>
+      <div className="absolute inset-x-[2%] top-full mt-1 h-4">
+        <span className="absolute inset-y-0 left-0 w-0.5 bg-mint" />
+        <span className="absolute left-0 right-0 top-[7px] h-0.5 border-t-2 border-dashed border-mint" />
+        <span className="absolute inset-y-0 right-0 w-0.5 bg-mint" />
+        <AnimatePresence mode="popLayout" initial={false}>
+          <motion.span
+            key={label}
+            className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap bg-ink px-2.5 py-0.5 font-mono text-sm font-bold text-mint"
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            transition={{ duration: 0.25 }}
+          >
+            {label}
+          </motion.span>
+        </AnimatePresence>
+      </div>
     </motion.div>
   );
 }

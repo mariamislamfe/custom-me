@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PALETTES } from "@/components/art/artworks";
 import { categories, cleanSelection, defaultSelection, priceFor, productViews, selectionLabels, type CategoryId, type Pricing, type Product } from "@/data/catalog";
-import { baseColour, colourName, contrastInk, HEX, lab, type Customization, type DesignBase, type DesignLayer, type FontId } from "@/config/customization";
+import { allLayers, backLabel, backLayers, baseColour, colourName, contrastInk, HEX, lab, type Customization, type DesignBase, type DesignLayer, type Face, type FontId } from "@/config/customization";
 import { customLineKey, useCart, type CartLine } from "@/lib/cart";
 import { prepareUpload } from "@/lib/image";
 import { layerId, newImageLayer, newTextLayer } from "@/lib/layers";
@@ -16,7 +16,11 @@ export interface LabState {
   custom: Customization;
   /** Personalizing this shop design (its options and price) instead of designing a plain piece */
   product?: Product;
+  /** The back's own design, kept while the back is plain or repeats the front, in case they come back to it */
+  backStash?: DesignLayer[];
 }
+
+export type BackMode = "plain" | "same" | "own";
 
 export function initialLab(pricing: Pricing, category: CategoryId = "sleeves", base: string = lab.baseSwatches[0].hex, text = ""): LabState {
   const t = text.trim().slice(0, lab.text.maxLength);
@@ -33,8 +37,16 @@ const colourHex = (product: Product, colour?: string) => (colour ? product.colou
 
 /** The shop design's front photo for a colour, as the ground the customer's layers sit on. */
 function designFor(product: Product, colour?: string): DesignBase | undefined {
-  const front = productViews(product, colour).front;
-  return front && { productId: product.id, slug: product.slug, name: product.name, image: { src: front.src, width: front.width, height: front.height } };
+  const { front, back } = productViews(product, colour);
+  return (
+    front && {
+      productId: product.id,
+      slug: product.slug,
+      name: product.name,
+      image: { src: front.src, width: front.width, height: front.height },
+      ...(back ? { back: { src: back.src, width: back.width, height: back.height } } : {}),
+    }
+  );
 }
 
 /** Personalize a shop design: the piece as it's sold, ready for a name or more art on top. */
@@ -99,8 +111,36 @@ export function useLab(start: LabState) {
   }, []);
   const { category, selection, custom, product } = state;
   const base = baseColour(custom);
+  /** The side on show: the Lab turns the piece round for the back step */
+  const [face, setFace] = useState<Face>("front");
+  const ownBack = Boolean(custom.back && !custom.back.same);
+  /** The layers being designed: the back's own, or the front's */
+  const layers = face === "back" && ownBack ? backLayers(custom) : custom.layers;
 
-  const setLayers = useCallback((fn: (layers: DesignLayer[]) => DesignLayer[]) => setState((s) => ({ ...s, custom: { ...s.custom, layers: fn(s.custom.layers) } })), []);
+  /** Applies a change to every layer list (ids are unique across them): front, back and the stash. */
+  const setLayers = useCallback(
+    (fn: (layers: DesignLayer[]) => DesignLayer[]) =>
+      setState((s) => {
+        const c = s.custom;
+        return {
+          ...s,
+          ...(s.backStash ? { backStash: fn(s.backStash) } : {}),
+          custom: { ...c, layers: fn(c.layers), ...(c.back && !c.back.same ? { back: { same: false, layers: fn(c.back.layers) } } : {}) },
+        };
+      }),
+    [],
+  );
+
+  /** A new layer on top of the side being designed. */
+  const pushLayer = useCallback(
+    (layer: DesignLayer, side: Face) =>
+      setState((s) => {
+        const c = s.custom;
+        if (side === "back" && c.back && !c.back.same) return { ...s, custom: { ...c, back: { same: false, layers: [...c.back.layers, layer] } } };
+        return { ...s, custom: { ...c, layers: [...c.layers, layer] } };
+      }),
+    [],
+  );
 
   const updateLayer = useCallback(
     (id: string, patch: Partial<DesignLayer>) => setLayers((ls) => ls.map((l) => (l.id === id ? ({ ...l, ...patch } as DesignLayer) : l))),
@@ -149,15 +189,16 @@ export function useLab(start: LabState) {
   /** Adds an uploaded image as a new layer. Throws UploadError with a message for the customer. */
   const addImage = useCallback(
     async (file: File) => {
-      if (custom.layers.length >= lab.maxLayers) throw new Error(`You can use up to ${lab.maxLayers} layers on one piece.`);
+      if (layers.length >= lab.maxLayers) throw new Error(`You can use up to ${lab.maxLayers} layers on one side.`);
+      const side = face;
       const prepared = await prepareUpload(file);
       const layer = newImageLayer(category, prepared);
-      setLayers((ls) => [...ls, layer]);
+      pushLayer(layer, side);
       setSelectedId(layer.id);
       void send(layer.id, file);
       return prepared;
     },
-    [category, custom.layers.length, send, setLayers],
+    [category, face, layers.length, pushLayer, send],
   );
 
   const retryUpload = useCallback((id: string) => {
@@ -168,13 +209,24 @@ export function useLab(start: LabState) {
   const addText = useCallback(
     (text: string, font: FontId = "marker") => {
       const t = text.trim().slice(0, lab.text.maxLength);
-      if (!t || custom.layers.length >= lab.maxLayers) return;
+      if (!t || layers.length >= lab.maxLayers) return;
       const layer = newTextLayer(category, t, font, contrastInk(base));
-      setLayers((ls) => [...ls, layer]);
+      pushLayer(layer, face);
       setSelectedId(layer.id);
     },
-    [base, category, custom.layers.length, setLayers],
+    [base, category, face, layers.length, pushLayer],
   );
+
+  /** The back: left plain, the front repeated, or a design of its own (what was designed there comes back). */
+  const setBackMode = useCallback((mode: BackMode) => {
+    setSelectedId(null);
+    setState((s) => {
+      const c = s.custom;
+      const own = c.back && !c.back.same ? c.back.layers : undefined;
+      if (mode === "own") return { ...s, backStash: undefined, custom: { ...c, back: { same: false, layers: own ?? s.backStash ?? [] } } };
+      return { ...s, backStash: own ?? s.backStash, custom: { ...c, back: mode === "same" ? { same: true } : undefined } };
+    });
+  }, []);
 
   const setCategory = useCallback((c: CategoryId) => {
     // Layers keep their place: positions are relative to the print area
@@ -186,8 +238,9 @@ export function useLab(start: LabState) {
       setState((s) => {
         const ground = hex.toLowerCase();
         // Text that would vanish into the new colour switches to one that reads
-        const layers = s.custom.layers.map((l) => (l.kind === "text" && l.ink.toLowerCase() === ground ? { ...l, ink: contrastInk(hex) } : l));
-        return { ...s, custom: { ...s.custom, base: hex, baseId: undefined, layers } };
+        const fix = (ls: DesignLayer[]) => ls.map((l) => (l.kind === "text" && l.ink.toLowerCase() === ground ? { ...l, ink: contrastInk(hex) } : l));
+        const back = s.custom.back && !s.custom.back.same ? { same: false as const, layers: fix(s.custom.back.layers) } : s.custom.back;
+        return { ...s, custom: { ...s.custom, base: hex, baseId: undefined, layers: fix(s.custom.layers), back } };
       }),
     [],
   );
@@ -210,6 +263,7 @@ export function useLab(start: LabState) {
     setState((s) => (s.product ? labForProduct(pricing, s.product, s.selection) : initialLab(pricing, s.category, baseColour(s.custom))));
     setUploads({});
     setSelectedId(null);
+    setFace("front");
   }, [pricing]);
 
   /** Leave the shop design for a plain piece of the same type, keeping what was added. */
@@ -218,7 +272,8 @@ export function useLab(start: LabState) {
       setState((s) => ({
         category: s.category,
         selection: defaultSelection(s.category, pricing),
-        custom: { base: baseColour(s.custom), layers: s.custom.layers },
+        backStash: s.backStash,
+        custom: { base: baseColour(s.custom), layers: s.custom.layers, ...(s.custom.back ? { back: s.custom.back } : {}) },
       })),
     [pricing],
   );
@@ -232,14 +287,22 @@ export function useLab(start: LabState) {
   const summary = useMemo(
     () =>
       product
-        ? [`Design: ${product.name}`, ...selectionLabels(product, selection, pricing), ...(custom.template ? [`Base colour: ${colourName(base)}`] : [])]
-        : [...selectionLabels(category, selection, pricing), `Base colour: ${colourName(base)}`],
-    [base, category, custom.template, pricing, product, selection],
+        ? [
+            `Design: ${product.name}`,
+            ...selectionLabels(product, selection, pricing),
+            ...(custom.template ? [`Base colour: ${colourName(base)}`] : []),
+            ...(custom.back ? [`Back: ${backLabel(custom)}`] : []),
+          ]
+        : [...selectionLabels(category, selection, pricing), `Base colour: ${colourName(base)}`, ...(custom.back ? [`Back: ${backLabel(custom)}`] : [])],
+    [base, category, custom, pricing, product, selection],
   );
 
-  const uploading = Object.values(uploads).some((u) => u.status === "uploading");
-  const failed = Object.values(uploads).some((u) => u.status === "error");
-  const ready = price != null && custom.layers.length > 0 && !uploading && !failed && custom.layers.every((l) => l.kind === "text" || l.fileId);
+  // Only the layers on the piece count (not a back design put aside)
+  const onPiece = allLayers(custom);
+  const pending = onPiece.map((l) => uploads[l.id]).filter(Boolean);
+  const uploading = pending.some((u) => u.status === "uploading");
+  const failed = pending.some((u) => u.status === "error");
+  const ready = price != null && onPiece.length > 0 && !uploading && !failed && onPiece.every((l) => l.kind === "text" || l.fileId);
 
   const addToBag = useCallback(() => {
     if (!ready || price == null) return false;
@@ -267,6 +330,10 @@ export function useLab(start: LabState) {
     custom,
     product,
     base,
+    face,
+    setFace,
+    layers,
+    setBackMode,
     selectedId,
     select: setSelectedId,
     uploads,

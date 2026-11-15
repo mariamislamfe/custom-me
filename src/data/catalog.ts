@@ -220,6 +220,13 @@ export const categoryOrder: CategoryId[] = ["bags", "sleeves", "ruler-cases", "n
 /** Which of a type's option groups a product's own sizes replace. */
 const SIZE_GROUP: Record<CategoryId, string> = { sleeves: "size", bags: "size", "ruler-cases": "length", notebooks: "size", stickers: "size" };
 
+/**
+ * A type's size option ("Laptop size", "Ruler length"), if it has one. Sizes
+ * are priced in full (on each product, and per size for Lab pieces on the
+ * Prices page); other options (a strap, the pages) add an extra.
+ */
+export const sizeGroupId = (c: CategoryId) => SIZE_GROUP[c];
+
 /** A product type, or a product with the sizes and colours set on it in the dashboard. */
 export type Optioned = CategoryId | { category: CategoryId; sizes?: ProductSize[]; colours?: ProductColour[] };
 
@@ -245,6 +252,22 @@ export function optionsFor(item: Optioned, pricing: Pricing): OptionGroup[] {
     values: item.sizes.map((z) => ({ id: z.id, label: z.label, price: z.price, available: z.available })),
   };
   return base.some((g) => g.id === sizeId) ? [...groups, ...base.map((g) => (g.id === sizeId ? sizes : g))] : [...groups, sizes, ...base];
+}
+
+/**
+ * A size picked from the dashboard's options ("80 cm", "14\""): its label as
+ * written there, and its number next to the biggest size's (1 = the biggest).
+ * The group is found by id, or else by a name like "Length" or "Size".
+ */
+export function optionMeasure(item: Optioned, pricing: Pricing, groupId: string, selection: Record<string, string>) {
+  const groups = optionsFor(item, pricing);
+  const g = groups.find((x) => x.id === groupId) ?? groups.find((x) => x.id !== "colour" && /length|size|مقاس|طول/i.test(x.label));
+  const v = g && (g.values.find((x) => x.id === selection[g.id]) ?? g.values[0]);
+  if (!g || !v) return null;
+  const n = (label: string) => parseFloat(label.replace(",", ".").match(/\d+(\.\d+)?/)?.[0] ?? "");
+  const sizes = g.values.map((x) => n(x.label)).filter((x) => Number.isFinite(x) && x > 0);
+  const own = n(v.label);
+  return { label: v.label, share: sizes.length && Number.isFinite(own) && own > 0 ? own / Math.max(...sizes) : 1 };
 }
 
 /** Default selection = first available value of each option group. */

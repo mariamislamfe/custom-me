@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { cacheLife, cacheTag } from "next/cache";
 import { EXPENSE_CATEGORIES } from "@/config/finance";
 import { GOVERNORATES, type DeliveryFees } from "@/config/orders";
-import { DEFAULT_PAYMENTS, type PaymentSettings } from "@/config/payments";
+import { DEFAULT_PAYMENTS, type DepositAmount, type PaymentSettings } from "@/config/payments";
 import { site } from "@/config/site";
 import { categories, categoryOrder, DEFAULT_PRICING, type CategoryId, type OptionGroup, type Pricing } from "@/data/catalog";
 import type { FinanceEntry, NewFinanceEntry } from "@/lib/finance";
@@ -143,18 +143,42 @@ export interface StoreInfo {
   instagram: string;
   /** e.g. "@custom.me" */
   instagramHandle: string;
+  /** Facebook page link, shown in the footer; empty hides it */
+  facebook: string;
+  /** TikTok link, shown in the footer; empty hides it */
+  tiktok: string;
+  /** WhatsApp number for the "Need help?" button and the footer; empty hides them */
+  whatsapp: string;
 }
 
 const text = (v: unknown, max: number, fallback = "") => (typeof v === "string" ? v.trim().slice(0, max) : fallback);
+
+/** A saved deposit (EGP a piece, or a % of the price), or the fallback when it isn't one. */
+function depositAmount(v: unknown, fallback: DepositAmount): DepositAmount {
+  const a = v as Partial<DepositAmount> | null | undefined;
+  if (!a || (a.unit !== "egp" && a.unit !== "percent") || typeof a.value !== "number" || !Number.isInteger(a.value) || a.value < 0) return fallback;
+  if (a.unit === "percent" ? a.value > 100 : a.value > 1_000_000) return fallback;
+  return { unit: a.unit, value: a.value };
+}
 const percent = (v: unknown) => typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 90;
 
 /** InstaPay details and the shop's links; never saved = the starting values in the code. */
 export async function readStoreInfo(): Promise<StoreInfo> {
-  const raw = (await readJson(STORE_FILE)) as { payments?: Record<string, unknown>; instagram?: unknown; instagramHandle?: unknown } | null;
+  const raw = (await readJson(STORE_FILE)) as {
+    payments?: Record<string, unknown>;
+    instagram?: unknown;
+    instagramHandle?: unknown;
+    facebook?: unknown;
+    tiktok?: unknown;
+    whatsapp?: unknown;
+  } | null;
   const p = raw?.payments ?? {};
   return {
     payments: {
-      depositPerPiece: egp(p.depositPerPiece) ? (p.depositPerPiece as number) : DEFAULT_PAYMENTS.depositPerPiece,
+      depositIsDelivery: typeof p.depositIsDelivery === "boolean" ? p.depositIsDelivery : DEFAULT_PAYMENTS.depositIsDelivery,
+      // Saved before deposits had a unit: a set amount per piece
+      readyDeposit: depositAmount(p.readyDeposit, egp(p.depositPerPiece) ? { unit: "egp", value: p.depositPerPiece as number } : DEFAULT_PAYMENTS.readyDeposit),
+      customDeposit: depositAmount(p.customDeposit, DEFAULT_PAYMENTS.customDeposit),
       fullPaymentDiscountPercent: percent(p.fullPaymentDiscountPercent) ? (p.fullPaymentDiscountPercent as number) : DEFAULT_PAYMENTS.fullPaymentDiscountPercent,
       address: text(p.address, 80, DEFAULT_PAYMENTS.address),
       phone: text(p.phone, 20, DEFAULT_PAYMENTS.phone),
@@ -165,6 +189,9 @@ export async function readStoreInfo(): Promise<StoreInfo> {
     },
     instagram: raw ? text(raw.instagram, 300) : (site.instagram ?? ""),
     instagramHandle: raw ? text(raw.instagramHandle, 60) : (site.instagramHandle ?? ""),
+    facebook: text(raw?.facebook, 300),
+    tiktok: text(raw?.tiktok, 300),
+    whatsapp: text(raw?.whatsapp, 20),
   };
 }
 

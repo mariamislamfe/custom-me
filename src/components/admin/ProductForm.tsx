@@ -9,7 +9,7 @@ import { ProductMockup } from "@/components/products/ProductMockup";
 import { fitClass } from "@/components/products/shapes";
 import { PRODUCT_IMAGE } from "@/config/products";
 import { lab } from "@/config/customization";
-import { categories, categoryOrder, COLOUR_TAGS, type CategoryId, type Pricing, type Product, type ProductImage } from "@/data/catalog";
+import { categories, categoryOrder, COLOUR_TAGS, sizeGroupId, type CategoryId, type Pricing, type Product, type ProductImage } from "@/data/catalog";
 import { uploadFile } from "@/lib/upload";
 import { Card, Field, FieldError, input, pill, smallButton, Toggle } from "./ui";
 import { TemplateEditor } from "./TemplateEditor";
@@ -21,6 +21,10 @@ type ColourRow = { id: string; label: string; hex: string; available: boolean };
 
 const newId = () => Math.random().toString(36).slice(2, 10);
 
+/** A type's standard sizes as rows to price, so a new product starts with a full price box per size. */
+const standardSizes = (options: Pricing["options"], c: CategoryId): SizeRow[] =>
+  (options[c].find((g) => g.id === sizeGroupId(c))?.values ?? []).map((v) => ({ id: v.id, label: v.label, price: "", available: v.available !== false }));
+
 /** `options`: each type's option groups, as set on the Product options page. */
 export function ProductForm({ product, options }: { product?: Product; options: Pricing["options"] }) {
   const [state, action, saving] = useActionState<SaveState, FormData>(saveProduct, {});
@@ -28,7 +32,14 @@ export function ProductForm({ product, options }: { product?: Product; options: 
   const [images, setImages] = useState<ProductImage[]>(product?.images ?? []);
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [palette, setPalette] = useState<PaletteId>(product?.palette ?? "navy-mint");
-  const [sizes, setSizes] = useState<SizeRow[]>(() => (product?.sizes ?? []).map((z) => ({ ...z, price: z.price == null ? "" : String(z.price) })));
+  const [sizes, setSizes] = useState<SizeRow[]>(() =>
+    product ? product.sizes.map((z) => ({ ...z, price: z.price == null ? "" : String(z.price) })) : standardSizes(options, categoryOrder[0]),
+  );
+  /** Another product type: a new product's untouched sizes become that type's sizes */
+  const pickCategory = (c: CategoryId) => {
+    setCategory(c);
+    if (!product && sizes.every((z) => !z.price.trim())) setSizes(() => standardSizes(options, c));
+  };
   const [colours, setColours] = useState<ColourRow[]>(product?.colours ?? []);
   const [removeBg, setRemoveBg] = useState(true);
   const [split, setSplit] = useState(true);
@@ -98,7 +109,7 @@ export function ProductForm({ product, options }: { product?: Product; options: 
         <div role="radiogroup" aria-label="Product type" className="grid grid-cols-2 gap-3 sm:grid-cols-5">
           {categoryOrder.map((c) => (
             <label key={c} className="cursor-pointer">
-              <input type="radio" name="category" value={c} checked={category === c} onChange={() => setCategory(c)} className="peer sr-only" />
+              <input type="radio" name="category" value={c} checked={category === c} onChange={() => pickCategory(c)} className="peer sr-only" />
               <span className="flex h-full flex-col items-center gap-3 p-3 ring-2 ring-ink/15 transition-colors peer-checked:bg-mint-soft peer-checked:ring-ink peer-focus-visible:outline-3 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-mint hover:ring-ink/40">
                 <span className="flex h-20 w-full items-center justify-center">
                   <ProductMockup category={c} artwork="plain" palette={palette} className={fitClass(c) === "w-full" ? "w-full max-w-28" : "h-full"} />
@@ -279,7 +290,12 @@ export function ProductForm({ product, options }: { product?: Product; options: 
           key={category}
           category={category}
           initial={product?.category === category ? product.template : undefined}
-          ground={PALETTES[palette].ground}
+          ground={colours[0]?.hex.toUpperCase() ?? PALETTES[palette].ground}
+          // The product's own photo: the editable design starts from it (one colour only: the photo shows just that one)
+          photo={(() => {
+            const front = images.find((i) => !i.back) ?? images[0];
+            return front ? { src: front.src, name: "Product photo", auto: colours.length <= 1 } : undefined;
+          })()}
           onBusy={setTemplateBusy}
           error={errors.template}
         />
@@ -341,18 +357,24 @@ function SizesCard({ groups, sizes, setSizes, error }: { groups: Pricing["option
       title="Sizes & prices"
       hint={
         sizes.length
-          ? "The customer picks one. A size with no price costs the main price above."
+          ? "The customer picks one. Write each size’s full price (what the customer pays for it, not what it adds). A size left empty costs the main price above. Options like a strap still add their extra on top, from the Product options page."
           : standard
-            ? `No sizes of its own yet: it comes in the standard sizes (${standard.values.map((v) => v.label).join(", ")}), with the extras from the Product options page. Add sizes here to give this product its own sizes and prices.`
+            ? `No sizes of its own yet: it comes in the standard sizes (${standard.values.map((v) => v.label).join(", ")}). Press “Start from the standard sizes” to give each one its full price.`
             : "No sizes yet: it comes in one size, at the main price. Add sizes if it comes in more than one."
       }
     >
       {sizes.length > 0 && (
         <ul className="mb-4 grid gap-3">
+          <li aria-hidden className="hidden grid-cols-[minmax(0,1fr)_9rem_auto_auto] gap-2 text-xs font-semibold text-muted sm:grid">
+            <span>Size</span>
+            <span>Full price (EGP)</span>
+            <span />
+            <span />
+          </li>
           {sizes.map((z, i) => (
             <li key={z.id} className="grid grid-cols-[minmax(0,1fr)_7.5rem] items-center gap-2 sm:grid-cols-[minmax(0,1fr)_9rem_auto_auto]">
               <input aria-label={`Size ${i + 1} name`} value={z.label} maxLength={30} placeholder="e.g. A4, Large" className={input} onChange={(e) => edit(i, { label: e.target.value })} />
-              <input aria-label={`Size ${i + 1} price (EGP)`} value={z.price} inputMode="numeric" placeholder="Price" className={input} onChange={(e) => edit(i, { price: e.target.value })} />
+              <input aria-label={`Full price of size ${z.label || i + 1} (EGP)`} value={z.price} inputMode="numeric" placeholder="e.g. 700" className={input} onChange={(e) => edit(i, { price: e.target.value })} />
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={z.available} onChange={(e) => edit(i, { available: e.target.checked })} className="size-4 accent-ink" />
                 In stock

@@ -45,10 +45,7 @@ export function Checkout() {
   const [errors, setErrors] = useState<Errors>({});
   const [sending, setSending] = useState(false);
   const [done, setDone] = useState<Extract<PlaceOrderResult, { ok: true }> | null>(null);
-  const methods = paymentMethods(pay);
-  const [payment, setPayment] = useState<PaymentMethod>(methods[0]);
-  // Paying by InstaPay (a deposit or everything): the transfer's screenshot comes with the order
-  const withDeposit = payment !== "cod";
+  const [picked, setPicked] = useState<PaymentMethod | null>(null);
   const [promoText, setPromoText] = useState("");
   const [promo, setPromo] = useState<AppliedPromo | null>(null);
   const [promoBusy, setPromoBusy] = useState(false);
@@ -59,9 +56,15 @@ export function Checkout() {
   const receiptInput = useRef<HTMLInputElement>(null);
 
   const fee = form.governorate ? deliveryFees[form.governorate as Governorate] : undefined;
-  const pieces = lines.reduce((n, l) => n + l.qty, 0);
+  const depositLines = lines.map((l) => ({ custom: l.kind === "custom", unitPrice: l.unitPrice, qty: l.qty }));
   const promoOff = promo ? promoDiscount(promo, subtotal) : 0;
-  const totals = (method: PaymentMethod) => orderTotals({ subtotal, promo: promoOff, shipping: fee ?? null, pieces, payment: method, pay });
+  const totals = (method: PaymentMethod) => orderTotals({ subtotal, promo: promoOff, shipping: fee ?? null, lines: depositLines, payment: method, pay });
+  // The deposit choice only when there's something to put down (it can hang on the governorate's delivery fee)
+  const methods = paymentMethods(pay, totals("instapay-deposit").deposit);
+  const payment: PaymentMethod = picked && methods.includes(picked) ? picked : methods[0];
+  const setPayment = setPicked;
+  // Paying by InstaPay (a deposit or everything): the transfer's screenshot comes with the order
+  const withDeposit = payment !== "cod";
   const { instapayDiscount, total, paidNow, codBalance } = totals(payment);
 
   const applyPromo = async () => {

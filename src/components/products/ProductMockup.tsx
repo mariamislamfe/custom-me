@@ -4,7 +4,7 @@ import { useId } from "react";
 import { Artwork, PALETTES, type ArtworkId, type PaletteId } from "@/components/art/artworks";
 import type { CategoryId } from "@/data/catalog";
 import { SHAPES } from "./shapes";
-import { baseColour, fontOf, type Customization, type DesignLayer, type FontId } from "@/config/customization";
+import { baseColour, fontOf, shownAspect, type Customization, type DesignLayer, type FontId } from "@/config/customization";
 
 /**
  * Product mockups drawn in SVG. Each product's print area is its `art` box
@@ -158,7 +158,7 @@ export function SvgLayer({ layer, area }: { layer: DesignLayer; area: { x: numbe
   const transform = `translate(${area.x + layer.x * area.w} ${area.y + layer.y * area.h}) rotate(${layer.rotation})`;
   if (layer.kind === "image") {
     const w = layer.width * area.w;
-    const h = w * layer.aspect;
+    const h = w * shownAspect(layer);
     return (
       <g transform={transform}>
         <image href={layer.src} x={-w / 2} y={-h / 2} width={w} height={h} preserveAspectRatio="none" />

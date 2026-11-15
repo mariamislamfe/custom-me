@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { Header, HeaderView } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { CartDrawer } from "@/components/cart/CartDrawer";
+import { HelpButton, HelpButtonView } from "@/components/layout/HelpButton";
 import { StoreProvider } from "@/components/store/StoreProvider";
 import { getStoreProducts } from "@/lib/server/products";
 import { getStoreSettings } from "@/lib/server/settings";
@@ -19,8 +20,14 @@ export default async function SiteLayout({ children }: LayoutProps<"/">) {
         <main id="main" className="flex-1">
           {children}
         </main>
-        <Footer instagram={store.instagram} instagramHandle={store.instagramHandle} />
+        <Footer store={store} />
         <CartDrawer />
+        {store.whatsapp && (
+          // It reads the URL (to sit above the Lab's bar): streamed in, like the header
+          <Suspense fallback={<HelpButtonView whatsapp={store.whatsapp} />}>
+            <HelpButton whatsapp={store.whatsapp} />
+          </Suspense>
+        )}
       </Providers>
     </StoreProvider>
   );

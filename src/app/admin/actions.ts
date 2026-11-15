@@ -5,9 +5,11 @@ import { refresh, updateTag } from "next/cache";
 import { redirect } from "next/navigation";
 import { GOVERNORATES, type DeliveryFees } from "@/config/orders";
 import { lab } from "@/config/customization";
-import { categories, categoryOrder, type Pricing } from "@/data/catalog";
+import type { DepositAmount } from "@/config/payments";
+import { categories, categoryOrder, sizeGroupId, type Pricing } from "@/data/catalog";
 import { adminConfigured, checkPassword, createSession, destroySession, requireAdmin } from "@/lib/server/auth";
 import { requestOrigin, sendPush } from "@/lib/server/notify";
+import { makePhotoTemplates } from "@/lib/server/template";
 import {
   createProduct,
   moveProduct,
@@ -22,6 +24,7 @@ import {
   addPushSubscription,
   OPTION_ID,
   readPricing,
+  readStoreInfo,
   removePushSubscriptions,
   SETTINGS_TAG,
   validOptionGroups,
@@ -86,6 +89,14 @@ export async function togglePublished(id: string, published: boolean) {
   updateTag(PRODUCTS_TAG);
 }
 
+/** Editable designs made of each product's own photo, for every product that has none yet. */
+export async function makeTemplatesFromPhotos() {
+  await requireAdmin();
+  const result = await makePhotoTemplates();
+  updateTag(PRODUCTS_TAG);
+  return result;
+}
+
 export async function reorderProduct(id: string, dir: -1 | 1) {
   await requireAdmin();
   await moveProduct(id, dir);
@@ -110,10 +121,24 @@ export async function savePricing(prev: SettingsState, form: FormData): Promise<
   const pricing: Pricing = await readPricing();
   for (const c of categoryOrder) {
     if (lab.categories.includes(c)) {
-      // Empty = not decided yet: custom pieces of that type can't be ordered
-      const custom = egp(form.get(`custom:${c}`), { optional: true });
-      if (custom === null || custom === 0) return { error: `Check the price of a custom ${categories[c].singular.toLowerCase()}: a number like 700, or leave it empty for now.` };
-      pricing.custom[c] = custom ?? null;
+      const what = `a custom ${categories[c].singular.toLowerCase()}`;
+      const sizes = pricing.options[c].find((g) => g.id === sizeGroupId(c));
+      if (sizes) {
+        // A full price for each size: the cheapest is the piece's price, the others what they add to it
+        const prices = sizes.values.map((v) => ({ v, price: egp(form.get(`customSize:${c}:${v.id}`), { optional: true }) }));
+        const bad = prices.find((p) => p.price === null || p.price === 0);
+        if (bad) return { error: `Check the price of ${what} in ${bad.v.label}: a number like 700, or leave every size empty for now.` };
+        const set = prices.filter((p) => p.price != null) as { v: (typeof prices)[number]["v"]; price: number }[];
+        if (set.length && set.length < prices.length) return { error: `Give ${what} a price in every size, or leave them all empty for now.` };
+        const low = set.length ? Math.min(...set.map((p) => p.price)) : null;
+        pricing.custom[c] = low;
+        for (const p of set) pricing.extras[c] = { ...pricing.extras[c], [`${sizes.id}:${p.v.id}`]: p.price - low! };
+      } else {
+        // Empty = not decided yet: custom pieces of that type can't be ordered
+        const custom = egp(form.get(`custom:${c}`), { optional: true });
+        if (custom === null || custom === 0) return { error: `Check the price of ${what}: a number like 700, or leave it empty for now.` };
+        pricing.custom[c] = custom ?? null;
+      }
       const personalize = egp(form.get(`personalize:${c}`), { optional: true });
       if (personalize === null) return { error: `Check what personalizing a ${categories[c].singular.toLowerCase()} adds: a number like 50, or 0.` };
       pricing.personalize[c] = personalize ?? 0;
@@ -163,9 +188,14 @@ export async function saveOptions(prev: SettingsState, form: FormData): Promise<
         const vlabel = String(v.label ?? "").trim();
         if (!vlabel) return { error: `${name}: give every choice of “${label}” a name, or remove the empty one.` };
         const vid = OPTION_ID.test(String(v.id ?? "")) ? String(v.id) : newOptionId();
-        const extra = egp(v.extra ?? "", { optional: true });
-        if (extra === null) return { error: `${name}: check the extra for ${label} “${vlabel}”: a number like 50, or 0.` };
-        extras[`${id}:${vid}`] = extra ?? 0;
+        if (id === sizeGroupId(c)) {
+          // Sizes are priced in full on the Prices page (Lab pieces): keep what's set there
+          extras[`${id}:${vid}`] = pricing.extras[c]?.[`${id}:${vid}`] ?? 0;
+        } else {
+          const extra = egp(v.extra ?? "", { optional: true });
+          if (extra === null) return { error: `${name}: check the extra for ${label} “${vlabel}”: a number like 50, or 0.` };
+          extras[`${id}:${vid}`] = extra ?? 0;
+        }
         vals.push({ id: vid, label: vlabel, note: String(v.note ?? ""), available: v.available !== false });
       }
       shaped.push({ id, label, values: vals });
@@ -185,11 +215,27 @@ export async function saveOptions(prev: SettingsState, form: FormData): Promise<
 
 const field = (form: FormData, key: string, max: number) => String(form.get(key) ?? "").trim().slice(0, max);
 
-/** InstaPay details, the deposit and paid-in-full discount, and the shop's Instagram. */
+/** A deposit typed on the form: a whole number, EGP a piece or a % (0 to 100) of the price. */
+function depositInput(form: FormData, key: string): DepositAmount | string {
+  const unit = form.get(`${key}Unit`) === "percent" ? "percent" : "egp";
+  const raw = field(form, `${key}Value`, 9).replace(/,/g, "");
+  const value = Number(raw || "0");
+  if (!Number.isInteger(value) || value < 0) return "enter a whole number, like 50 (0 = no deposit).";
+  if (unit === "percent" && value > 100) return "a percentage goes from 0 to 100.";
+  if (unit === "egp" && value > 1_000_000) return "that amount is too big.";
+  return { unit, value };
+}
+
+/** InstaPay details, the deposit and paid-in-full discount, and the shop's social links and WhatsApp. */
 export async function saveStoreInfo(prev: SettingsState, form: FormData): Promise<SettingsState> {
   await requireAdmin();
-  const deposit = egp(form.get("depositPerPiece"));
-  if (deposit === null) return { error: "Enter the deposit per piece as a number, like 100 (0 = no deposit)." };
+  const depositIsDelivery = form.get("depositIsDelivery") === "on";
+  const current = (await readStoreInfo()).payments;
+  // The ready-made deposit is only on the form while the delivery-fee rule is off: otherwise it's kept
+  const readyDeposit = depositIsDelivery ? current.readyDeposit : depositInput(form, "readyDeposit");
+  if (typeof readyDeposit === "string") return { error: `Deposit for ready-made products: ${readyDeposit}` };
+  const customDeposit = depositInput(form, "customDeposit");
+  if (typeof customDeposit === "string") return { error: `Deposit for custom pieces: ${customDeposit}` };
   const percentText = field(form, "fullPaymentDiscountPercent", 3);
   const percent = Number(percentText || "0");
   if (!Number.isInteger(percent) || percent < 0 || percent > 90) return { error: "Enter the paid-in-full discount as a whole number from 0 to 90 (0 turns it off)." };
@@ -197,14 +243,20 @@ export async function saveStoreInfo(prev: SettingsState, form: FormData): Promis
   if (phone && !/^\+?\d{8,15}$/.test(phone)) return { error: "Check the InstaPay mobile number: digits only, like 01012345678." };
   const link = field(form, "link", 300);
   const instagram = field(form, "instagram", 300);
-  for (const [label, url] of [["InstaPay link", link], ["Instagram link", instagram]] as const) {
+  const facebook = field(form, "facebook", 300);
+  const tiktok = field(form, "tiktok", 300);
+  for (const [label, url] of [["InstaPay link", link], ["Instagram link", instagram], ["Facebook link", facebook], ["TikTok link", tiktok]] as const) {
     if (url && !/^https:\/\/\S+$/.test(url)) return { error: `The ${label} should start with https://` };
   }
+  const whatsapp = field(form, "whatsapp", 20).replace(/[\s-]/g, "");
+  if (whatsapp && !/^\+?\d{8,15}$/.test(whatsapp)) return { error: "Check the WhatsApp number: digits only, like 01012345678." };
   const qr = field(form, "qr", 300);
   if (qr && !/^(\/media\/|https:\/\/)\S+$/.test(qr)) return { error: "Upload the QR code again." };
   const info: StoreInfo = {
     payments: {
-      depositPerPiece: deposit ?? 0,
+      depositIsDelivery,
+      readyDeposit,
+      customDeposit,
       fullPaymentDiscountPercent: percent,
       address: field(form, "address", 80),
       phone,
@@ -215,6 +267,9 @@ export async function saveStoreInfo(prev: SettingsState, form: FormData): Promis
     },
     instagram,
     instagramHandle: field(form, "instagramHandle", 60),
+    facebook,
+    tiktok,
+    whatsapp,
   };
   await writeStoreInfo(info);
   updateTag(SETTINGS_TAG);

@@ -1,9 +1,9 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { PALETTES } from "@/components/art/artworks";
-import { colourName, HEX, lab, LIMITS, type Customization, type DesignBase, type DesignLayer, type TemplateRef } from "@/config/customization";
+import { allLayers, backLabel, colourName, HEX, lab, LIMITS, type BackSide, type Customization, type DesignBase, type DesignLayer, type TemplateRef } from "@/config/customization";
 import { GOVERNORATES, MAX_LINES, MAX_QTY, type DepositStatus, type Governorate, type OrderStatus } from "@/config/orders";
-import { orderTotals, paymentMethods, type PaymentMethod } from "@/config/payments";
+import { depositEnabled, orderTotals, paymentMethods, type PaymentMethod } from "@/config/payments";
 import { site } from "@/config/site";
 import { categories, cleanSelection, priceFor, productViews, selectionLabels, type CategoryId } from "@/data/catalog";
 import { cairoDay } from "@/lib/finance";
@@ -90,10 +90,27 @@ async function cleanCustom(input: unknown, design?: DesignBase, template?: Templ
   // Any colour; bags from before colours could be picked name a colourway
   const base = typeof c?.base === "string" && HEX.test(c.base) ? c.base.toUpperCase() : c?.baseId && c.baseId in PALETTES ? PALETTES[c.baseId].ground : null;
   if (!c || !base) return "A custom piece has an unknown base colour.";
-  if (!Array.isArray(c.layers) || c.layers.length === 0) return "A custom piece has no design on it.";
-  if (c.layers.length > lab.maxLayers) return "A custom piece has too many layers.";
+  if (!Array.isArray(c.layers)) return "A custom piece has no design on it.";
+  const layers = await cleanLayers(c.layers);
+  if (typeof layers === "string") return layers;
+  // The back: the front repeated, its own design, or (unset) plain
+  const rawBack = c.back as Partial<{ same: boolean; layers: unknown }> | undefined;
+  let back: BackSide | undefined;
+  if (rawBack?.same === true) back = { same: true };
+  else if (rawBack && Array.isArray(rawBack.layers) && rawBack.layers.length) {
+    const own = await cleanLayers(rawBack.layers);
+    if (typeof own === "string") return own;
+    back = { same: false, layers: own };
+  }
+  if (!layers.length && !(back && !back.same)) return "A custom piece has no design on it.";
+  return { base, ...(design ? { design } : {}), ...(template ? { template } : {}), layers, ...(back ? { back } : {}) };
+}
+
+/** One side's layers, re-checked; image previews swapped for the stored originals. */
+async function cleanLayers(list: unknown[]): Promise<DesignLayer[] | string> {
+  if (list.length > lab.maxLayers) return "A custom piece has too many layers.";
   const layers: DesignLayer[] = [];
-  for (const l of c.layers as Partial<DesignLayer>[]) {
+  for (const l of list as Partial<DesignLayer>[]) {
     const place = {
       id: String(l.id ?? randomUUID()).slice(0, 60),
       x: num(l.x, 0, 1, 0.5),
@@ -115,6 +132,9 @@ async function cleanCustom(input: unknown, design?: DesignBase, template?: Templ
         originalWidth: Math.round(num(l.originalWidth, 1, 100000, 1)),
         originalHeight: Math.round(num(l.originalHeight, 1, 100000, 1)),
         width: num(l.width, ...LIMITS.imageWidth, 0.5),
+        // Stretched by the customer (proportions unlocked)
+        ...(l.ratio != null ? { ratio: num(l.ratio, ...LIMITS.imageRatio, 1) } : {}),
+        ...(l.free === true ? { free: true } : {}),
       });
     } else if (l.kind === "text") {
       const text = String(l.text ?? "").slice(0, lab.text.maxLength);
@@ -125,8 +145,11 @@ async function cleanCustom(input: unknown, design?: DesignBase, template?: Templ
       return "A custom piece has an unknown layer.";
     }
   }
-  return { base, ...(design ? { design } : {}), ...(template ? { template } : {}), layers };
+  return layers;
 }
+
+/** "Back: Same as the front", for the order's option lines (nothing when the back is plain). */
+const backLine = (c: Customization) => (c.back ? [`Back: ${backLabel(c)}`] : []);
 
 // Basic guard against bots flooding the order list: 10 orders per device per hour.
 async function allowOrder(key: string) {
@@ -140,14 +163,13 @@ export async function createOrder(
 ): Promise<{ order: Order } | { errors: CheckoutErrors }> {
   const { customer, errors } = cleanCustomer(input.customer ?? {});
   const pay = (await readStoreInfo()).payments;
-  const methods = paymentMethods(pay);
-  const payment = methods.includes(input.payment as PaymentMethod) ? (input.payment as PaymentMethod) : methods[0];
-  // An InstaPay transfer (deposit or the whole order) comes with its screenshot
-  const withDeposit = payment !== "cod";
+  // Paid by InstaPay (the deposit or the whole order): its screenshot must come with it. The way
+  // they pay is settled once the order's deposit is known, below; the transfer is checked here.
+  const wantsInstapay = input.payment === "instapay-deposit" || input.payment === "instapay-full";
   const payer = String(input.deposit?.payer ?? "").trim().slice(0, 80);
   const reference = String(input.deposit?.reference ?? "").trim().slice(0, 80);
   const receiptFileId = String(input.deposit?.receiptFileId ?? "");
-  if (withDeposit) {
+  if (wantsInstapay && depositEnabled(pay)) {
     if (payer.length < 2) errors.payer = "Enter the name or InstaPay number you paid from.";
     if (!(await receiptExists(receiptFileId))) errors.receipt = "Upload a screenshot of your InstaPay transfer.";
   }
@@ -184,7 +206,7 @@ export async function createOrder(
           quantity,
           unitPrice: own + (pricing.personalize[product.category] ?? 0),
           selection,
-          options: [...selectionLabels(product, selection, pricing), `Base colour: ${colourName(custom.base!)}`],
+          options: [...selectionLabels(product, selection, pricing), `Base colour: ${colourName(custom.base!)}`, ...backLine(custom)],
           image: productViews(product, selection.colour).front,
           custom,
         });
@@ -201,13 +223,14 @@ export async function createOrder(
         const selection = cleanSelection(product, l.selection, pricing);
         if (!selection) return { errors: { form: `Choose the options for ${product.name} again.` } };
         const own = priceFor(product, selection, pricing);
-        const front = productViews(product, selection.colour).front;
+        const { front, back } = productViews(product, selection.colour);
         if (own == null || !front) return { errors: { form: "A design you personalized isn't available any more. Remove it from your bag and try again." } };
         const custom = await cleanCustom(l.custom, {
           productId: product.id,
           slug: product.slug,
           name: product.name,
           image: { src: front.src, width: front.width, height: front.height },
+          ...(back ? { back: { src: back.src, width: back.width, height: back.height } } : {}),
         });
         if (typeof custom === "string") return { errors: { form: custom } };
         out.push({
@@ -218,7 +241,7 @@ export async function createOrder(
           quantity,
           unitPrice: own + (pricing.personalize[product.category] ?? 0),
           selection,
-          options: selectionLabels(product, selection, pricing),
+          options: [...selectionLabels(product, selection, pricing), ...backLine(custom)],
           image: front,
           custom,
         });
@@ -238,7 +261,7 @@ export async function createOrder(
         quantity,
         unitPrice: priceFor({ category, price: base }, selection, pricing),
         selection,
-        options: [...selectionLabels(category, selection, pricing), `Base colour: ${colourName(custom.base!)}`],
+        options: [...selectionLabels(category, selection, pricing), `Base colour: ${colourName(custom.base!)}`, ...backLine(custom)],
         custom,
       });
       continue;
@@ -264,7 +287,7 @@ export async function createOrder(
   }
 
   const subtotal = out.reduce((n, l) => n + l.unitPrice * l.quantity, 0);
-  const pieces = out.reduce((n, l) => n + l.quantity, 0);
+  const depositLines = out.map((l) => ({ custom: Boolean(l.custom), unitPrice: l.unitPrice, qty: l.quantity }));
 
   const code = normalizeCode(input.promo);
   let promo: Order["promo"] = null;
@@ -277,7 +300,18 @@ export async function createOrder(
 
   // The governorate's fee from the dashboard; none set = confirmed on the phone
   const shipping = (await readDeliveryFees())[customer.governorate as Governorate] ?? null;
-  const { instapayDiscount, total, paidNow, codBalance } = orderTotals({ subtotal, promo: promo?.amount ?? 0, shipping, pieces, payment, pay });
+  const promoOff = promo?.amount ?? 0;
+  const depositNow = orderTotals({ subtotal, promo: promoOff, shipping, lines: depositLines, payment: "instapay-deposit", pay }).deposit;
+  const methods = paymentMethods(pay, depositNow);
+  const asked = typeof input.payment === "string" ? (input.payment as PaymentMethod) : null;
+  const payment = asked && methods.includes(asked) ? asked : methods[0];
+  const withDeposit = payment !== "cod";
+  // The way they chose isn't offered for this order any more (the delivery fee or the deposit
+  // changed meanwhile), or it needs a transfer they didn't send: never switch it behind their back
+  if ((asked && !methods.includes(asked)) || (withDeposit && !wantsInstapay)) {
+    return { errors: { form: "The way to pay changed. Check “How you pay” and add the InstaPay screenshot." } };
+  }
+  const { instapayDiscount, total, paidNow, codBalance } = orderTotals({ subtotal, promo: promoOff, shipping, lines: depositLines, payment, pay });
   const now = new Date().toISOString();
   const id = randomUUID();
   const draft: Order = {
@@ -338,7 +372,7 @@ export async function removeOrder(id: string) {
   const order = await readOrder(id);
   if (!order) return false;
   await deleteOrderRow(id);
-  const designs = [...new Set(order.lines.flatMap((l) => l.custom?.layers ?? []).flatMap((l) => (l.kind === "image" && l.fileId ? [l.fileId] : [])))];
+  const designs = [...new Set(order.lines.flatMap((l) => (l.custom ? allLayers(l.custom) : [])).flatMap((l) => (l.kind === "image" && l.fileId ? [l.fileId] : [])))];
   // The order is already gone; files that fail to delete are only leftovers
   await Promise.all([
     removeFiles("designs", designs),
