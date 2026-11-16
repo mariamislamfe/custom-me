@@ -2,7 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PALETTES } from "@/components/art/artworks";
-import { categories, cleanSelection, defaultSelection, priceFor, productViews, selectionLabels, type CategoryId, type Pricing, type Product } from "@/data/catalog";
+import {
+  categories,
+  cleanSelection,
+  customPiece,
+  customPriceFor,
+  defaultSelection,
+  productViews,
+  selectionLabels,
+  sizeGroupOf,
+  type CategoryId,
+  type Pricing,
+  type Product,
+} from "@/data/catalog";
 import { allLayers, backLabel, backLayers, baseColour, colourName, contrastInk, HEX, lab, type Customization, type DesignBase, type DesignLayer, type Face, type FontId } from "@/config/customization";
 import { customLineKey, useCart, type CartLine } from "@/lib/cart";
 import { prepareUpload } from "@/lib/image";
@@ -49,9 +61,28 @@ function designFor(product: Product, colour?: string): DesignBase | undefined {
   );
 }
 
-/** Personalize a shop design: the piece as it's sold, ready for a name or more art on top. */
+/**
+ * A customized shop design's choices: its colours and the type's sizes (custom
+ * pieces are priced per size on the Prices page). The size picked on the
+ * product carries over when the type has the same one (by name, or id).
+ */
+function customSelection(pricing: Pricing, product: Product, selection: Record<string, string>) {
+  const item = customPiece(product.category, product);
+  const sizes = sizeGroupOf(pricing.options[product.category], product.category);
+  const sel = { ...selection };
+  if (sizes) {
+    const picked = product.sizes.find((z) => z.id === selection[sizes.id]);
+    const same = (label: string) => label.trim().toLowerCase() === picked?.label.trim().toLowerCase();
+    const match = (picked && sizes.values.find((v) => same(v.label))) ?? sizes.values.find((v) => v.id === selection[sizes.id]);
+    if (match) sel[sizes.id] = match.id;
+    else delete sel[sizes.id];
+  }
+  return cleanSelection(item, sel, pricing) ?? defaultSelection(item, pricing);
+}
+
+/** Customize a shop design: the piece as it's sold, ready for a name or more art on top. */
 export function labForProduct(pricing: Pricing, product: Product, selection: Record<string, string> = {}, text = ""): LabState {
-  const sel = cleanSelection(product, selection, pricing) ?? defaultSelection(product, pricing);
+  const sel = customSelection(pricing, product, selection);
   // The design's editable original: its own pieces open as layers the customer can change
   if (product.template?.layers.length) {
     const t = text.trim().slice(0, lab.text.maxLength);
@@ -278,18 +309,15 @@ export function useLab(start: LabState) {
     [pricing],
   );
 
-  const price = useMemo(() => {
-    if (!product) return priceFor({ category, price: pricing.custom[category] }, selection, pricing);
-    const own = priceFor(product, selection, pricing);
-    return own == null ? null : own + (pricing.personalize[category] ?? 0);
-  }, [category, product, selection, pricing]);
+  // Designed here or a customized shop design: the custom price of the chosen size
+  const price = useMemo(() => customPriceFor(customPiece(category, product), selection, pricing), [category, product, selection, pricing]);
 
   const summary = useMemo(
     () =>
       product
         ? [
             `Design: ${product.name}`,
-            ...selectionLabels(product, selection, pricing),
+            ...selectionLabels(customPiece(category, product), selection, pricing),
             ...(custom.template ? [`Base colour: ${colourName(base)}`] : []),
             ...(custom.back ? [`Back: ${backLabel(custom)}`] : []),
           ]

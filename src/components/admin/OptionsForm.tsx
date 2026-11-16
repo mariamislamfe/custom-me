@@ -2,11 +2,12 @@
 
 import { useActionState, useState } from "react";
 import { saveOptions, type SettingsState } from "@/app/admin/actions";
-import { categories, categoryOrder, sizeGroupId, type CategoryId, type Pricing } from "@/data/catalog";
+import { categories, categoryOrder, sizeGroupOf, type CategoryId, type Pricing } from "@/data/catalog";
 import { Card, input, smallButton } from "./ui";
 
 type ValueRow = { key: string; id: string; label: string; note: string; extra: string; available: boolean };
-type GroupRow = { key: string; id: string; label: string; values: ValueRow[] };
+/** `sizes`: the option that is the sizes (one per type), priced in full instead of an extra */
+type GroupRow = { key: string; id: string; label: string; sizes: boolean; values: ValueRow[] };
 
 const LIMITS = { groups: 6, values: 20 };
 const key = () => Math.random().toString(36).slice(2, 10);
@@ -24,8 +25,9 @@ function swap<T>(list: T[], i: number, dir: -1 | 1) {
 
 /**
  * The choices for each product type — laptop size, strap, ruler length,
- * notebook size and pages (lined, dotted…) — with what each adds to the
- * price. Products can still set their own sizes and colours on the product.
+ * notebook size and pages (lined, dotted…). One of them can be marked as the
+ * sizes: each size then gets a full price (on each product, and on the Prices
+ * page for custom pieces); the other choices add an extra.
  */
 export function OptionsForm({ pricing }: { pricing: Pricing }) {
   const [state, action, saving] = useActionState<SettingsState, FormData>(saveOptions, {});
@@ -38,6 +40,7 @@ export function OptionsForm({ pricing }: { pricing: Pricing }) {
             key: key(),
             id: g.id,
             label: g.label,
+            sizes: g === sizeGroupOf(pricing.options[c], c),
             values: g.values.map((v) => ({
               key: key(),
               id: v.id,
@@ -66,7 +69,7 @@ export function OptionsForm({ pricing }: { pricing: Pricing }) {
     changeGroup(c, gk, (g) => ({ ...g, values: g.values.map((v) => (v.key === vk ? { ...v, ...patch } : v)) }));
 
   const payload = Object.fromEntries(
-    categoryOrder.map((c) => [c, groups[c].map((g) => ({ id: g.id, label: g.label, values: g.values.map(({ id, label, note, extra, available }) => ({ id, label, note, extra, available })) }))]),
+    categoryOrder.map((c) => [c, groups[c].map((g) => ({ id: g.id, label: g.label, sizes: g.sizes, values: g.values.map(({ id, label, note, extra, available }) => ({ id, label, note, extra, available })) }))]),
   );
 
   return (
@@ -79,14 +82,14 @@ export function OptionsForm({ pricing }: { pricing: Pricing }) {
           hint={
             c === "stickers"
               ? "Stickers usually get their sizes or packs on each sticker. Add options here only if every sticker comes the same ways."
-              : `What a customer picks for every ${categories[c].singular.toLowerCase()} (and in the Lab). A product with its own sizes (set on the product) shows those instead of the “${c === "ruler-cases" ? "length" : "size"}” option here.`
+              : `What a customer picks for every ${categories[c].singular.toLowerCase()} (and in the Lab). Mark the option that is the sizes: each size then gets its full price, not an extra.`
           }
         >
           {groups[c].length === 0 && <p className="mb-4 text-sm text-muted">No options: it comes one way.</p>}
           <div className="grid gap-5">
             {groups[c].map((g, gi) => {
-              // Sizes have full prices (on each product, and on the Prices page for Lab pieces), not an extra
-              const sized = g.id === sizeGroupId(c);
+              // Sizes have full prices (on each product, and on the Prices page for custom pieces), not an extra
+              const sized = g.sizes;
               return (
               <fieldset key={g.key} className="border-2 border-ink/15 p-4">
                 <legend className="sr-only">{g.label || `Option ${gi + 1}`}</legend>
@@ -112,13 +115,24 @@ export function OptionsForm({ pricing }: { pricing: Pricing }) {
                   </button>
                 </div>
 
+                <label className="mt-3 flex items-center gap-2 text-sm font-semibold">
+                  <input
+                    type="checkbox"
+                    checked={sized}
+                    // One option per type is the sizes
+                    onChange={(e) => change(c, (l) => l.map((x) => ({ ...x, sizes: x.key === g.key ? e.target.checked : false })))}
+                    className="size-4 accent-ink"
+                  />
+                  These are the sizes (each one gets a full price)
+                </label>
                 {sized && (
-                  <p className="mt-3 bg-mint-soft px-3 py-2 text-sm">
-                    These are the sizes. Each size gets its full price (not an extra): on each product, under “Sizes &amp; prices”, and for pieces designed in the Lab on the{" "}
+                  <p className="mt-2 bg-mint-soft px-3 py-2 text-sm">
+                    Each size gets its full price, not an extra: on each product, under “Sizes &amp; prices”, and for custom pieces (designed in the Lab, or a shop design
+                    customized there) on the{" "}
                     <a href="/admin/settings" className="font-semibold underline">
                       Prices
                     </a>{" "}
-                    page.
+                    page. A new size can’t be ordered as a custom piece until it has its price there.
                   </p>
                 )}
                 <ul className="mt-4 grid gap-3">
@@ -175,7 +189,7 @@ export function OptionsForm({ pricing }: { pricing: Pricing }) {
             type="button"
             className={`${smallButton} mt-4`}
             disabled={groups[c].length >= LIMITS.groups}
-            onClick={() => change(c, (l) => [...l, { key: key(), id: newId(), label: "", values: [{ key: key(), id: newId(), label: "", note: "", extra: "0", available: true }] }])}
+            onClick={() => change(c, (l) => [...l, { key: key(), id: newId(), label: "", sizes: false, values: [{ key: key(), id: newId(), label: "", note: "", extra: "0", available: true }] }])}
           >
             + Add an option
           </button>

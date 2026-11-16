@@ -9,7 +9,7 @@ import { ProductMockup } from "@/components/products/ProductMockup";
 import { fitClass } from "@/components/products/shapes";
 import { PRODUCT_IMAGE } from "@/config/products";
 import { lab } from "@/config/customization";
-import { categories, categoryOrder, COLOUR_TAGS, sizeGroupId, type CategoryId, type Pricing, type Product, type ProductImage } from "@/data/catalog";
+import { categories, categoryOrder, COLOUR_TAGS, sizeGroupOf, type CategoryId, type OptionGroup, type Pricing, type Product, type ProductImage } from "@/data/catalog";
 import { uploadFile } from "@/lib/upload";
 import { Card, Field, FieldError, input, pill, smallButton, Toggle } from "./ui";
 import { TemplateEditor } from "./TemplateEditor";
@@ -23,7 +23,7 @@ const newId = () => Math.random().toString(36).slice(2, 10);
 
 /** A type's standard sizes as rows to price, so a new product starts with a full price box per size. */
 const standardSizes = (options: Pricing["options"], c: CategoryId): SizeRow[] =>
-  (options[c].find((g) => g.id === sizeGroupId(c))?.values ?? []).map((v) => ({ id: v.id, label: v.label, price: "", available: v.available !== false }));
+  (sizeGroupOf(options[c], c)?.values ?? []).map((v) => ({ id: v.id, label: v.label, price: "", available: v.available !== false }));
 
 /** `options`: each type's option groups, as set on the Product options page. */
 export function ProductForm({ product, options }: { product?: Product; options: Pricing["options"] }) {
@@ -243,23 +243,29 @@ export function ProductForm({ product, options }: { product?: Product; options: 
           <Field label="Name" error={errors.name} htmlFor="name">
             <input id="name" name="name" defaultValue={product?.name} maxLength={80} required className={input} aria-invalid={!!errors.name} onChange={() => touch("name")} />
           </Field>
-          <Field
-            label="Price (EGP)"
-            error={errors.price}
-            htmlFor="price"
-            hint="The product’s price. Sizes below can each have their own. Leave empty while the price isn’t decided: the product shows with “Price soon” and can’t be ordered."
-          >
-            <input
-              id="price"
-              name="price"
-              inputMode="numeric"
-              defaultValue={product?.price ?? ""}
-              placeholder="650"
-              className={`${input} max-w-48`}
-              aria-invalid={!!errors.price}
-              onChange={() => touch("price")}
-            />
-          </Field>
+          {sizes.length === 0 ? (
+            <Field
+              label="Price (EGP)"
+              error={errors.price}
+              htmlFor="price"
+              hint="It comes in one size, at this price (add sizes below if it comes in more). Leave empty while the price isn’t decided: the product shows with “Price soon” and can’t be ordered."
+            >
+              <input
+                id="price"
+                name="price"
+                inputMode="numeric"
+                defaultValue={product?.price ?? ""}
+                placeholder="650"
+                className={`${input} max-w-48`}
+                aria-invalid={!!errors.price}
+                onChange={() => touch("price")}
+              />
+            </Field>
+          ) : (
+            <p className="text-sm">
+              <span className="font-semibold">Price:</span> set for each size, under “Sizes &amp; prices” below.
+            </p>
+          )}
           <Field label="Short line" htmlFor="blurb" hint="One sentence for the homepage and the product page.">
             <textarea id="blurb" name="blurb" defaultValue={product?.blurb} maxLength={240} rows={2} className={`${input} h-auto py-3`} />
           </Field>
@@ -281,7 +287,7 @@ export function ProductForm({ product, options }: { product?: Product; options: 
         </div>
       </Card>
 
-      <SizesCard groups={options[category]} sizes={sizes} setSizes={setSizes} error={errors.sizes} />
+      <SizesCard standard={sizeGroupOf(options[category], category)} sizes={sizes} setSizes={setSizes} error={errors.sizes} />
       <ColoursCard colours={colours} setColours={setColours} error={errors.colours} />
 
       {lab.categories.includes(category) && (
@@ -349,18 +355,18 @@ export function ProductForm({ product, options }: { product?: Product; options: 
   );
 }
 
-function SizesCard({ groups, sizes, setSizes, error }: { groups: Pricing["options"][CategoryId]; sizes: SizeRow[]; setSizes: (fn: (s: SizeRow[]) => SizeRow[]) => void; error?: string }) {
-  const standard = groups.find((g) => g.id === "size" || g.id === "length");
+/** `standard`: the type's sizes (Product options page), to start from. */
+function SizesCard({ standard, sizes, setSizes, error }: { standard?: OptionGroup; sizes: SizeRow[]; setSizes: (fn: (s: SizeRow[]) => SizeRow[]) => void; error?: string }) {
   const edit = (i: number, patch: Partial<SizeRow>) => setSizes((list) => list.map((z, k) => (k === i ? { ...z, ...patch } : z)));
   return (
     <Card
       title="Sizes & prices"
       hint={
         sizes.length
-          ? "The customer picks one. Write each size’s full price (what the customer pays for it, not what it adds). A size left empty costs the main price above. Options like a strap still add their extra on top, from the Product options page."
+          ? "The customer picks one. Write each size’s full price: what the customer pays for it, not what it adds. Leave them all empty while the prices aren’t decided (“Price soon”). Choices like a strap still add their extra on top, from the Product options page."
           : standard
-            ? `No sizes of its own yet: it comes in the standard sizes (${standard.values.map((v) => v.label).join(", ")}). Press “Start from the standard sizes” to give each one its full price.`
-            : "No sizes yet: it comes in one size, at the main price. Add sizes if it comes in more than one."
+            ? `No sizes yet: it comes in one size, at the price above. Press “Start from the standard sizes” (${standard.values.map((v) => v.label).join(", ")}) to give each size its full price.`
+            : "No sizes yet: it comes in one size, at the price above. Add sizes if it comes in more than one."
       }
     >
       {sizes.length > 0 && (

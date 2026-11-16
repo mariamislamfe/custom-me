@@ -114,7 +114,7 @@ function parseRows(raw: string) {
   }
 }
 
-/** Sizes: a label each, an own price or none (= the main price). */
+/** Sizes: a label and a full price each (or every price empty while they aren't decided). */
 function parseSizes(raw: string): ProductSize[] | string {
   const rows = parseRows(raw);
   if (!rows) return "Something went wrong with the sizes. Reload the page and try again.";
@@ -125,10 +125,12 @@ function parseSizes(raw: string): ProductSize[] | string {
     const id = String(r.id ?? "");
     const priceRaw = String(r.price ?? "").replace(/,/g, "").trim();
     const price = Number(priceRaw);
-    if (priceRaw && (!Number.isFinite(price) || price <= 0 || price > 1_000_000)) return `Enter a price above 0 for ${label}, or leave it empty to use the main price.`;
+    if (priceRaw && (!Number.isFinite(price) || price <= 0 || price > 1_000_000)) return `Enter a price above 0 for ${label}, like 650.`;
     if (!ID.test(id) || out.some((s) => s.id === id)) return "Something went wrong with the sizes. Reload the page and try again.";
     out.push({ id, label, price: priceRaw ? Math.round(price) : null, available: r.available !== false });
   }
+  const missing = out.find((s) => s.price == null);
+  if (missing && out.some((s) => s.price != null)) return `Give ${missing.label} its price too: every size needs its own full price (or leave them all empty for now).`;
   return out;
 }
 
@@ -230,7 +232,9 @@ export function parseProductForm(form: FormData) {
   if (!name) errors.name = "Give the product a name.";
   if (!(category in categories)) errors.category = "Choose what kind of product it is.";
   // Empty = no price yet: the product shows in the store but can't be ordered
-  if (priceRaw && (!Number.isFinite(price) || price <= 0 || price > 1_000_000)) errors.price = "Enter a price above 0, like 650, or leave it empty for now.";
+  const sizeList = typeof sizes === "string" ? [] : sizes;
+  // With sizes, each has its own price (the form hides the one price)
+  if (!sizeList.length && priceRaw && (!Number.isFinite(price) || price <= 0 || price > 1_000_000)) errors.price = "Enter a price above 0, like 650, or leave it empty for now.";
   if (!images) errors.images = "Something went wrong with the photos. Remove them and upload again.";
   else if (images.length === 0) errors.images = "Add at least one photo.";
   else if (images.length > PRODUCT_IMAGE.maxPerProduct) errors.images = `Use up to ${PRODUCT_IMAGE.maxPerProduct} photos.`;
@@ -244,12 +248,13 @@ export function parseProductForm(form: FormData) {
     value: {
       name,
       category,
-      price: priceRaw ? Math.round(price) : null,
+      // With sizes: the smallest size price (for "From …" in the shop); null while they aren't priced
+      price: sizeList.length ? (sizeList.every((s) => s.price != null) ? Math.min(...sizeList.map((s) => s.price!)) : null) : priceRaw ? Math.round(price) : null,
       blurb,
       details,
       tags,
       palette,
-      sizes: typeof sizes === "string" ? [] : sizes,
+      sizes: sizeList,
       colours: colourList,
       // A photo tagged with a colour that was removed fits every colour again
       images: (images ?? []).map((img) => ({

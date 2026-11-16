@@ -5,7 +5,7 @@ import { useActionState, useRef, useState } from "react";
 import { saveDeliveryFees, savePricing, type SettingsState } from "@/app/admin/actions";
 import { GOVERNORATES, type DeliveryFees } from "@/config/orders";
 import { lab } from "@/config/customization";
-import { categories, categoryOrder, optionExtra, sizeGroupId, type Pricing } from "@/data/catalog";
+import { categories, categoryOrder, customSizePrice, optionExtra, sizeGroupOf, type Pricing } from "@/data/catalog";
 import { Card } from "./ui";
 
 const money = "h-11 w-28 border-2 border-ink/25 bg-sheet px-3 text-right font-mono text-lg outline-none focus:border-ink";
@@ -47,75 +47,73 @@ export function PricingForm({ pricing }: { pricing: Pricing }) {
   return (
     <form action={action} onInput={onInput} className="grid gap-6">
       <p className="text-sm">
-        Sizes get their full price. Shop products have theirs on each product (“Sizes &amp; prices”); pieces designed in the Lab have theirs here. What a strap or other
-        choices add is set with the choices themselves, on{" "}
+        The price of a custom piece: one designed in the Lab, or a shop design the customer customized (“Customize this”). Both cost the same, a full price for each
+        size. Ready-made shop products have their own prices, set on each product under “Sizes &amp; prices”. The sizes themselves, and what a strap or other
+        choices add, are set on{" "}
         <Link href="/admin/options" className="font-semibold underline">
           Product options
         </Link>
         .
       </p>
       {categoryOrder.map((c) => {
-        const sizes = pricing.options[c].find((g) => g.id === sizeGroupId(c));
-        const base = pricing.custom[c];
+        const sizes = sizeGroupOf(pricing.options[c], c);
+        const noun = categories[c].singular.toLowerCase();
+        // What the other choices add, shown so the full picture is on one page
+        const added = pricing.options[c]
+          .filter((g) => g !== sizes)
+          .flatMap((g) => g.values.map((v) => ({ g, v, extra: optionExtra(pricing, c, g.id, v.id) })))
+          .filter((x) => x.extra > 0);
         return (
-        <Card key={c} title={categories[c].label}>
-          <div className="grid gap-4">
-            {!lab.categories.includes(c) && (
-              <p className="text-sm text-muted">Each {categories[c].singular.toLowerCase()} has its own price (and sizes), set on the product. Nothing to set here.</p>
-            )}
-            {lab.categories.includes(c) && sizes && (
-              <div>
-                <p className="font-semibold">Custom {categories[c].singular.toLowerCase()} (designed in the Lab), price of each size</p>
-                <p className="text-sm text-muted">The full price in each size. All empty = not decided yet: the Lab shows “Price soon” and doesn’t take orders for it.</p>
-                <ul className="mt-3 grid gap-2">
-                  {sizes.values.map((v) => (
-                    <li key={v.id}>
-                      <label className="flex flex-wrap items-center justify-between gap-3">
-                        <span>{v.label}</span>
-                        <span className="flex items-center gap-2">
-                          <input
-                            name={`customSize:${c}:${v.id}`}
-                            inputMode="numeric"
-                            defaultValue={base == null ? "" : base + optionExtra(pricing, c, sizes.id, v.id)}
-                            className={money}
-                          />
-                          <span className="text-sm font-semibold text-muted">EGP</span>
-                        </span>
-                      </label>
-                    </li>
-                  ))}
-                </ul>
+          <Card key={c} title={categories[c].label}>
+            {!lab.categories.includes(c) ? (
+              <p className="text-sm text-muted">Each {noun} has its own price (and sizes), set on the product. Nothing to set here.</p>
+            ) : (
+              <div className="grid gap-4">
+                {sizes ? (
+                  <div>
+                    <p className="font-semibold">Custom {noun}: price of each size</p>
+                    <p className="text-sm text-muted">What the customer pays in each {sizes.label.toLowerCase()}. Empty = not decided yet: that size shows “Price soon” and can’t be ordered.</p>
+                    <ul className="mt-3 grid gap-2">
+                      {sizes.values.map((v) => (
+                        <li key={v.id}>
+                          <label className="flex flex-wrap items-center justify-between gap-3">
+                            <span className="font-medium">{v.label}</span>
+                            <span className="flex items-center gap-2">
+                              <input name={`customSize:${c}:${v.id}`} inputMode="numeric" defaultValue={customSizePrice(pricing, c, v.id) ?? ""} placeholder="—" className={money} />
+                              <span className="text-sm font-semibold text-muted">EGP</span>
+                            </span>
+                          </label>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <label className="flex flex-wrap items-center justify-between gap-3">
+                    <span>
+                      <span className="block font-semibold">Custom {noun}</span>
+                      <span className="block text-sm text-muted">
+                        It comes in one size (mark an option as the sizes on Product options to price each size). Empty = not decided yet: the Lab shows “Price soon” and
+                        doesn’t take orders for it.
+                      </span>
+                    </span>
+                    <span className="flex items-center gap-2">
+                      <input name={`custom:${c}`} inputMode="numeric" defaultValue={pricing.custom[c] ?? ""} placeholder="—" className={money} />
+                      <span className="text-sm font-semibold text-muted">EGP</span>
+                    </span>
+                  </label>
+                )}
+                {added.length > 0 && (
+                  <p className="text-sm text-muted">
+                    Added on top when picked: {added.map((x) => `${x.v.label} +${x.extra} EGP`).join(", ")} (
+                    <Link href="/admin/options" className="underline">
+                      change
+                    </Link>
+                    ).
+                  </p>
+                )}
               </div>
             )}
-            {lab.categories.includes(c) && (
-              <>
-                {!sizes && (
-                <label className="flex flex-wrap items-center justify-between gap-3">
-                  <span>
-                    <span className="block font-semibold">Custom {categories[c].singular.toLowerCase()} (designed in the Lab)</span>
-                    <span className="block text-sm text-muted">Smallest size. Empty = not decided yet: the Lab shows “Price soon” and doesn’t take orders for it. Shop products have their own price, set on each product.</span>
-                  </span>
-                  <span className="flex items-center gap-2">
-                    <input name={`custom:${c}`} inputMode="numeric" defaultValue={pricing.custom[c] ?? ""} className={money} />
-                    <span className="text-sm font-semibold text-muted">EGP</span>
-                  </span>
-                </label>
-                )}
-                <label className="flex flex-wrap items-center justify-between gap-3">
-                  <span>
-                    <span className="block font-semibold">Personalizing a shop design</span>
-                    <span className="block text-sm text-muted">Added to the design’s own price when a customer presses “Customize this” and adds a name or art to it. 0 = free.</span>
-                  </span>
-                  <span className="flex items-center gap-2">
-                    <span className="text-muted">+</span>
-                    <input name={`personalize:${c}`} inputMode="numeric" defaultValue={pricing.personalize[c] ?? 0} className={money} />
-                    <span className="text-sm font-semibold text-muted">EGP</span>
-                  </span>
-                </label>
-              </>
-            )}
-          </div>
-        </Card>
+          </Card>
         );
       })}
       <SaveBar label="Save prices" saving={saving} state={state} saved={saved} done="Saved. The store shows the new prices now." />

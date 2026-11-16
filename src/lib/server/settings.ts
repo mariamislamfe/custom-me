@@ -5,7 +5,7 @@ import { EXPENSE_CATEGORIES } from "@/config/finance";
 import { GOVERNORATES, type DeliveryFees } from "@/config/orders";
 import { DEFAULT_PAYMENTS, type DepositAmount, type PaymentSettings } from "@/config/payments";
 import { site } from "@/config/site";
-import { categories, categoryOrder, DEFAULT_PRICING, type CategoryId, type OptionGroup, type Pricing } from "@/data/catalog";
+import { categories, categoryOrder, DEFAULT_PRICING, sizeGroupOf, type CategoryId, type OptionGroup, type Pricing } from "@/data/catalog";
 import type { FinanceEntry, NewFinanceEntry } from "@/lib/finance";
 import { CODE_PATTERN, type PromoCode } from "@/lib/promo";
 import { getFile, putFile } from "./backend";
@@ -68,8 +68,10 @@ export function validOptionGroups(list: unknown): OptionGroup[] | null {
       const note = String(v.note ?? "").trim().slice(0, 120);
       values.push({ id: vid, label: vlabel, ...(note ? { note } : {}), ...(v.available === false ? { available: false } : {}) });
     }
-    out.push({ id, label, values });
+    out.push({ id, label, values, ...(typeof g.sizes === "boolean" ? { sizes: g.sizes } : {}) });
   }
+  // One option at most is the sizes
+  if (out.filter((g) => g.sizes).length > 1) return null;
   return out;
 }
 
@@ -83,6 +85,9 @@ export const writeCatalogOptions = (options: Pricing["options"]) => writeJson(OP
 
 // ── Prices ───────────────────────────────────────────────────────
 
+/** A full price: a whole number of EGP above 0. */
+const fullPrice = (v: unknown): v is number => egp(v) && (v as number) > 0;
+
 /** Custom-piece prices, the option groups and their extras; anything not saved yet uses DEFAULT_PRICING. */
 export async function readPricing(): Promise<Pricing> {
   const [raw, options] = await Promise.all([readJson(PRICING_FILE) as Promise<Partial<Pricing> | null>, readCatalogOptions()]);
@@ -91,12 +96,27 @@ export async function readPricing(): Promise<Pricing> {
   for (const c of categoryOrder) {
     const custom = raw?.custom?.[c];
     if (egp(custom) || custom === null) pricing.custom[c] = custom as number | null;
-    const personalize = raw?.personalize?.[c];
-    if (egp(personalize)) pricing.personalize[c] = personalize as number;
-    // Extras for the options as they are now: a value added since costs nothing extra until it's priced
+    const sizes = sizeGroupOf(options[c], c);
+    // Each size's full price, for the sizes as they are now: a size added since has none until it's priced
+    pricing.customSizes[c] = {};
+    if (sizes) {
+      for (const v of sizes.values) {
+        let price: unknown = DEFAULT_PRICING.customSizes[c][v.id];
+        if (raw?.customSizes) price = raw.customSizes[c]?.[v.id];
+        else if (custom !== undefined) {
+          // Saved before sizes had full prices: the smallest size's price + what this size added
+          const added = raw?.extras?.[c]?.[`${sizes.id}:${v.id}`];
+          const was = sizeGroupOf(categories[c].options, c)?.values.find((x) => x.id === v.id)?.priceDelta ?? 0;
+          price = egp(custom) ? (custom as number) + (egp(added) ? (added as number) : was) : null;
+        }
+        if (fullPrice(price)) pricing.customSizes[c][v.id] = price;
+      }
+    }
+    // What the other choices add: a choice added since costs nothing extra until it's priced
     const start = DEFAULT_PRICING.extras[c];
     pricing.extras[c] = {};
     for (const g of options[c]) {
+      if (g === sizes) continue;
       for (const v of g.values) {
         const key = `${g.id}:${v.id}`;
         const extra = raw?.extras?.[c]?.[key];
@@ -109,8 +129,8 @@ export async function readPricing(): Promise<Pricing> {
 
 /** The option groups themselves live in their own file (the Product options page). */
 export function writePricing(pricing: Pricing) {
-  const { custom, personalize, extras } = pricing;
-  return writeJson(PRICING_FILE, { custom, personalize, extras });
+  const { custom, customSizes, extras } = pricing;
+  return writeJson(PRICING_FILE, { custom, customSizes, extras });
 }
 
 /** Whether prices have been saved in the dashboard at least once. */

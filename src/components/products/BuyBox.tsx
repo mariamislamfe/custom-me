@@ -54,8 +54,8 @@ export function BuyBox({
           value={selection[g.id]}
           onChange={(v) => set(g.id, v)}
           extra={(v) => (g.own ? 0 : optionExtra(pricing, product.category, g.id, v))}
-          // Sizes with prices of their own: every chip shows what it costs
-          ownPrice={g.own && g.values.some((v) => v.price != null) ? (v) => v.price ?? product.price : undefined}
+          // Sizes: every chip shows its full price
+          ownPrice={g.sizes ? (v) => v.price ?? product.price : undefined}
           tone={tone}
           compact={compact}
         />

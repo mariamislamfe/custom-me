@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { categories, optionExtra, optionsFor, type CategoryId } from "@/data/catalog";
+import { categories, customPiece, customSizePrice, optionExtra, optionsFor, sizeGroupOf, type CategoryId } from "@/data/catalog";
 import {
   allLayers,
   backFace,
@@ -314,11 +314,30 @@ function StepObject({ L, n, total }: StepProps) {
   );
 }
 
+/** A custom piece's choices: each size with its full price (Prices page), other choices with what they add. */
+function CustomOptions({ L }: { L: L }) {
+  const { pricing } = useStore();
+  const sizes = sizeGroupOf(pricing.options[L.category], L.category);
+  return optionsFor(customPiece(L.category, L.product), pricing).map((g) => {
+    const sized = g.id === sizes?.id;
+    return (
+      <OptionPicker
+        key={g.id}
+        group={g}
+        value={L.selection[g.id]}
+        onChange={(v) => L.setOption(g.id, v)}
+        extra={(v) => (sized || g.own ? 0 : optionExtra(pricing, L.category, g.id, v))}
+        ownPrice={sized ? (v) => customSizePrice(pricing, L.category, v.id) : undefined}
+      />
+    );
+  });
+}
+
 function StepBase({ L, n, total }: StepProps) {
   const { pricing } = useStore();
   if (L.product) {
     const product = L.product;
-    const groups = optionsFor(product, pricing);
+    const groups = optionsFor(customPiece(L.category, product), pricing);
     // The design's editable original: the piece's colour is the customer's to pick too (unless the design comes in set colours)
     const editable = Boolean(L.custom.template);
     return (
@@ -334,24 +353,14 @@ function StepBase({ L, n, total }: StepProps) {
           }
         />
         <div className="space-y-8">
-          {groups.map((g) => (
-            <OptionPicker
-              key={g.id}
-              group={g}
-              value={L.selection[g.id]}
-              onChange={(v) => L.setOption(g.id, v)}
-              extra={(v) => (g.own ? 0 : optionExtra(pricing, product.category, g.id, v))}
-              ownPrice={g.own && g.values.some((v) => v.price != null) ? (v) => v.price ?? product.price : undefined}
-            />
-          ))}
+          <CustomOptions L={L} />
           {editable && !product.colours.length && (
             <ColourPicker label="Colour of the piece" value={L.base} onChange={L.setBase} swatches={lab.baseSwatches} pickFrom={picturesOf(L.custom)} />
           )}
           {!groups.length && !editable && <p className="text-muted">This design comes one way only. Go on to add yours.</p>}
           <div className="border-2 border-dashed border-ink/50 p-4 text-sm">
             <p>
-              Starting from <strong>{product.name}</strong>.{" "}
-              {pricing.personalize[product.category] ? `Personalizing it adds ${pricing.personalize[product.category]} EGP.` : ""}
+              Starting from <strong>{product.name}</strong>. Customized, it costs the same as any custom {categories[product.category].singular.toLowerCase()} in that size.
             </p>
             <button type="button" onClick={L.startPlain} className="type-label mt-2 underline decoration-2 underline-offset-4 hover:text-muted">
               Use a plain {categories[product.category].singular.toLowerCase()} instead
@@ -361,14 +370,11 @@ function StepBase({ L, n, total }: StepProps) {
       </>
     );
   }
-  const groups = pricing.options[L.category];
   return (
     <>
       <StepHead n={n} total={total} title="Size & colour." hint="Pick the fit, then the colour of the piece your design is printed on: any colour you like." />
       <div className="space-y-8">
-        {groups.map((g) => (
-          <OptionPicker key={g.id} group={g} value={L.selection[g.id]} onChange={(v) => L.setOption(g.id, v)} extra={(v) => optionExtra(pricing, L.category, g.id, v)} />
-        ))}
+        <CustomOptions L={L} />
         <ColourPicker label="Base colour" value={L.base} onChange={L.setBase} swatches={lab.baseSwatches} pickFrom={picturesOf(L.custom)} />
       </div>
     </>
@@ -758,7 +764,7 @@ function StepReview({ L, n, total, goto, added, onAdd }: StepProps & { goto: (st
     ...(L.product
       ? [{ k: "Design", v: L.product.name, step: "base" as const }]
       : [{ k: "Object", v: categories[L.category].singular, step: "object" as const }]),
-    ...optionsFor(L.product ?? L.category, pricing).map((g) => ({ k: g.label, v: g.values.find((v) => v.id === L.selection[g.id])?.label ?? "—", step: "base" as const })),
+    ...optionsFor(customPiece(L.category, L.product), pricing).map((g) => ({ k: g.label, v: g.values.find((v) => v.id === L.selection[g.id])?.label ?? "—", step: "base" as const })),
     ...(L.product && !L.custom.template ? [] : [{ k: "Base colour", v: colourName(L.base), step: "base" as const }]),
     { k: L.product ? "Your picture" : "Your design", v: images.length ? images.map((l) => l.name).join(", ") : "No image", step: "design" },
     { k: "Text", v: texts.length ? texts.map((l) => `“${l.text}”`).join(", ") : "No text", step: "design" },

@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { GOVERNORATES, type DeliveryFees } from "@/config/orders";
 import { lab } from "@/config/customization";
 import type { DepositAmount } from "@/config/payments";
-import { categories, categoryOrder, sizeGroupId, type Pricing } from "@/data/catalog";
+import { categories, categoryOrder, sizeGroupOf, type Pricing } from "@/data/catalog";
 import { adminConfigured, checkPassword, createSession, destroySession, requireAdmin } from "@/lib/server/auth";
 import { requestOrigin, sendPush } from "@/lib/server/notify";
 import { makePhotoTemplates } from "@/lib/server/template";
@@ -117,33 +117,30 @@ function egp(raw: FormDataEntryValue | null, { optional = false } = {}) {
 
 export async function savePricing(prev: SettingsState, form: FormData): Promise<SettingsState> {
   await requireAdmin();
-  // Option extras are set on the Product options page: kept as they are
+  // What other choices (a strap…) add is set on the Product options page: kept as it is
   const pricing: Pricing = await readPricing();
   for (const c of categoryOrder) {
-    if (lab.categories.includes(c)) {
-      const what = `a custom ${categories[c].singular.toLowerCase()}`;
-      const sizes = pricing.options[c].find((g) => g.id === sizeGroupId(c));
-      if (sizes) {
-        // A full price for each size: the cheapest is the piece's price, the others what they add to it
-        const prices = sizes.values.map((v) => ({ v, price: egp(form.get(`customSize:${c}:${v.id}`), { optional: true }) }));
-        const bad = prices.find((p) => p.price === null || p.price === 0);
-        if (bad) return { error: `Check the price of ${what} in ${bad.v.label}: a number like 700, or leave every size empty for now.` };
-        const set = prices.filter((p) => p.price != null) as { v: (typeof prices)[number]["v"]; price: number }[];
-        if (set.length && set.length < prices.length) return { error: `Give ${what} a price in every size, or leave them all empty for now.` };
-        const low = set.length ? Math.min(...set.map((p) => p.price)) : null;
-        pricing.custom[c] = low;
-        for (const p of set) pricing.extras[c] = { ...pricing.extras[c], [`${sizes.id}:${p.v.id}`]: p.price - low! };
-      } else {
-        // Empty = not decided yet: custom pieces of that type can't be ordered
-        const custom = egp(form.get(`custom:${c}`), { optional: true });
-        if (custom === null || custom === 0) return { error: `Check the price of ${what}: a number like 700, or leave it empty for now.` };
-        pricing.custom[c] = custom ?? null;
-      }
-      const personalize = egp(form.get(`personalize:${c}`), { optional: true });
-      if (personalize === null) return { error: `Check what personalizing a ${categories[c].singular.toLowerCase()} adds: a number like 50, or 0.` };
-      pricing.personalize[c] = personalize ?? 0;
-    } else {
+    if (!lab.categories.includes(c)) {
       pricing.custom[c] = null;
+      pricing.customSizes[c] = {};
+      continue;
+    }
+    const what = `a custom ${categories[c].singular.toLowerCase()}`;
+    const sizes = sizeGroupOf(pricing.options[c], c);
+    if (sizes) {
+      // A full price for each size; an empty one isn't on sale yet ("Price soon")
+      const prices: Record<string, number> = {};
+      for (const v of sizes.values) {
+        const price = egp(form.get(`customSize:${c}:${v.id}`), { optional: true });
+        if (price === null || price === 0) return { error: `Check the price of ${what} in ${v.label}: a number like 700, or leave it empty for now.` };
+        if (price !== undefined) prices[v.id] = price;
+      }
+      pricing.customSizes[c] = prices;
+    } else {
+      // Empty = not decided yet: custom pieces of that type can't be ordered
+      const custom = egp(form.get(`custom:${c}`), { optional: true });
+      if (custom === null || custom === 0) return { error: `Check the price of ${what}: a number like 700, or leave it empty for now.` };
+      pricing.custom[c] = custom ?? null;
     }
   }
   await writePricing(pricing);
@@ -153,7 +150,7 @@ export async function savePricing(prev: SettingsState, form: FormData): Promise<
 
 // ── Product options ──────────────────────────────────────────────
 
-type OptionsInput = Record<string, { id?: string; label?: string; values?: { id?: string; label?: string; note?: string; available?: boolean; extra?: string }[] }[]>;
+type OptionsInput = Record<string, { id?: string; label?: string; sizes?: boolean; values?: { id?: string; label?: string; note?: string; available?: boolean; extra?: string }[] }[]>;
 
 const newOptionId = () => `o-${randomBytes(4).toString("hex")}`;
 
@@ -177,7 +174,10 @@ export async function saveOptions(prev: SettingsState, form: FormData): Promise<
     const name = categories[c].label;
     const extras: Record<string, number> = {};
     const shaped = [];
-    for (const g of groups) {
+    // The option marked as the sizes (one at most): priced in full, on each product and on the Prices page
+    const sizesAt = groups.findIndex((g) => g.sizes === true);
+    for (const [gi, g] of groups.entries()) {
+      const sized = gi === sizesAt;
       const label = String(g.label ?? "").trim();
       if (!label) return { error: `${name}: give every option a name (like “Size”), or remove the empty one.` };
       const values = Array.isArray(g.values) ? g.values : [];
@@ -188,17 +188,14 @@ export async function saveOptions(prev: SettingsState, form: FormData): Promise<
         const vlabel = String(v.label ?? "").trim();
         if (!vlabel) return { error: `${name}: give every choice of “${label}” a name, or remove the empty one.` };
         const vid = OPTION_ID.test(String(v.id ?? "")) ? String(v.id) : newOptionId();
-        if (id === sizeGroupId(c)) {
-          // Sizes are priced in full on the Prices page (Lab pieces): keep what's set there
-          extras[`${id}:${vid}`] = pricing.extras[c]?.[`${id}:${vid}`] ?? 0;
-        } else {
+        if (!sized) {
           const extra = egp(v.extra ?? "", { optional: true });
           if (extra === null) return { error: `${name}: check the extra for ${label} “${vlabel}”: a number like 50, or 0.` };
           extras[`${id}:${vid}`] = extra ?? 0;
         }
         vals.push({ id: vid, label: vlabel, note: String(v.note ?? ""), available: v.available !== false });
       }
-      shaped.push({ id, label, values: vals });
+      shaped.push({ id, label, sizes: sized, values: vals });
     }
     const clean = validOptionGroups(shaped);
     if (!clean) return { error: `${name}: check the options (up to 6 options with up to 20 choices each, no two with the same name).` };

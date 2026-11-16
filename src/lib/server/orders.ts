@@ -5,7 +5,7 @@ import { allLayers, backLabel, colourName, HEX, lab, LIMITS, type BackSide, type
 import { GOVERNORATES, MAX_LINES, MAX_QTY, type DepositStatus, type Governorate, type OrderStatus } from "@/config/orders";
 import { depositEnabled, orderTotals, paymentMethods, type PaymentMethod } from "@/config/payments";
 import { site } from "@/config/site";
-import { categories, cleanSelection, priceFor, productViews, selectionLabels, type CategoryId } from "@/data/catalog";
+import { categories, cleanSelection, customPiece, customPriceFor, priceFor, productViews, selectionLabels, type CategoryId } from "@/data/catalog";
 import { cairoDay } from "@/lib/finance";
 import { normalizeCode, promoDiscount, promoProblem } from "@/lib/promo";
 import type { Order, OrderCustomer, OrderLine } from "@/lib/types";
@@ -192,10 +192,12 @@ export async function createOrder(
           return { errors: { form: "A design you customized isn't available any more. Remove it from your bag and try again." } };
         }
         if (!product.available) return { errors: { form: `${product.name} is sold out. Remove it from your bag to continue.` } };
-        const selection = cleanSelection(product, l.selection, pricing);
+        // A customized design costs what any custom piece costs in that size
+        const piece = customPiece(product.category, product);
+        const selection = cleanSelection(piece, l.selection, pricing);
         if (!selection) return { errors: { form: `Choose the options for ${product.name} again.` } };
-        const own = priceFor(product, selection, pricing);
-        if (own == null) return { errors: { form: "A design you customized isn't available any more. Remove it from your bag and try again." } };
+        const unitPrice = customPriceFor(piece, selection, pricing);
+        if (unitPrice == null) return { errors: { form: `${product.name}, customized, can't be ordered in that size yet. Remove it from your bag to continue.` } };
         const custom = await cleanCustom(l.custom, undefined, { productId: product.id, slug: product.slug, name: product.name });
         if (typeof custom === "string") return { errors: { form: custom } };
         out.push({
@@ -204,9 +206,9 @@ export async function createOrder(
           name: `${product.name}, personalized`,
           category: product.category,
           quantity,
-          unitPrice: own + (pricing.personalize[product.category] ?? 0),
+          unitPrice,
           selection,
-          options: [...selectionLabels(product, selection, pricing), `Base colour: ${colourName(custom.base!)}`, ...backLine(custom)],
+          options: [...selectionLabels(piece, selection, pricing), `Base colour: ${colourName(custom.base!)}`, ...backLine(custom)],
           image: productViews(product, selection.colour).front,
           custom,
         });
@@ -220,11 +222,13 @@ export async function createOrder(
           return { errors: { form: "A design you personalized isn't available any more. Remove it from your bag and try again." } };
         }
         if (!product.available) return { errors: { form: `${product.name} is sold out. Remove it from your bag to continue.` } };
-        const selection = cleanSelection(product, l.selection, pricing);
+        const piece = customPiece(product.category, product);
+        const selection = cleanSelection(piece, l.selection, pricing);
         if (!selection) return { errors: { form: `Choose the options for ${product.name} again.` } };
-        const own = priceFor(product, selection, pricing);
+        const unitPrice = customPriceFor(piece, selection, pricing);
         const { front, back } = productViews(product, selection.colour);
-        if (own == null || !front) return { errors: { form: "A design you personalized isn't available any more. Remove it from your bag and try again." } };
+        if (!front) return { errors: { form: "A design you personalized isn't available any more. Remove it from your bag and try again." } };
+        if (unitPrice == null) return { errors: { form: `${product.name}, personalized, can't be ordered in that size yet. Remove it from your bag to continue.` } };
         const custom = await cleanCustom(l.custom, {
           productId: product.id,
           slug: product.slug,
@@ -239,9 +243,9 @@ export async function createOrder(
           name: `${product.name}, personalized`,
           category: product.category,
           quantity,
-          unitPrice: own + (pricing.personalize[product.category] ?? 0),
+          unitPrice,
           selection,
-          options: [...selectionLabels(product, selection, pricing), ...backLine(custom)],
+          options: [...selectionLabels(piece, selection, pricing), ...backLine(custom)],
           image: front,
           custom,
         });
@@ -253,13 +257,13 @@ export async function createOrder(
       if (!selection) return { errors: { form: `Choose the options for your custom ${categories[category].singular.toLowerCase()} again.` } };
       const custom = await cleanCustom(l.custom);
       if (typeof custom === "string") return { errors: { form: custom } };
-      const base = pricing.custom[category];
-      if (base == null) return { errors: { form: `Custom ${categories[category].label.toLowerCase()} can't be ordered yet. Remove it from your bag to continue.` } };
+      const unitPrice = customPriceFor(category, selection, pricing);
+      if (unitPrice == null) return { errors: { form: `A custom ${categories[category].singular.toLowerCase()} can't be ordered in that size yet. Remove it from your bag to continue.` } };
       out.push({
         name: `Custom ${categories[category].singular}`,
         category,
         quantity,
-        unitPrice: priceFor({ category, price: base }, selection, pricing),
+        unitPrice,
         selection,
         options: [...selectionLabels(category, selection, pricing), `Base colour: ${colourName(custom.base!)}`, ...backLine(custom)],
         custom,

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { categories, type CategoryId } from "@/data/catalog";
+import { categories, sizeGroupOf, type CategoryId } from "@/data/catalog";
 import { ProductMockup } from "@/components/products/ProductMockup";
 import { fitClass } from "@/components/products/shapes";
 import { DrawnLine } from "@/components/line/DrawnLine";
@@ -16,7 +16,7 @@ import { SectionHead } from "./SectionHead";
  */
 export function ComingShelf({ category, n }: { category: CategoryId; n: number }) {
   const cat = categories[category];
-  const sizes = useStore().pricing.options[category].find((g) => g.id === "size");
+  const sizes = sizeGroupOf(useStore().pricing.options[category], category);
   return (
     <section className="relative overflow-hidden border-t-2 border-ink py-12 md:py-16" aria-labelledby={`${category}-title`}>
       <SectionHead
