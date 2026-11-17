@@ -3,7 +3,6 @@ import { AdminBar } from "@/components/admin/AdminBar";
 import { ProductForm } from "@/components/admin/ProductForm";
 import { Loading, PageTitle } from "@/components/admin/ui";
 import { requireAdmin } from "@/lib/server/auth";
-import { readCatalogOptions } from "@/lib/server/settings";
 
 export const metadata = { title: "Add product" };
 
@@ -25,5 +24,5 @@ export default function NewProductPage() {
 
 async function Guarded() {
   await requireAdmin();
-  return <ProductForm options={await readCatalogOptions()} />;
+  return <ProductForm />;
 }

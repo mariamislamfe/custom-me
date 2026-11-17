@@ -5,10 +5,11 @@ import { AdminBar } from "@/components/admin/AdminBar";
 import { ProductRowActions } from "@/components/admin/ProductRowActions";
 import { PhotoTemplatesButton } from "@/components/admin/PhotoTemplatesButton";
 import { Badge, Loading, PageTitle } from "@/components/admin/ui";
-import { categories, categoryOrder, ownPrices } from "@/data/catalog";
+import { categories, categoryOrder, priceRange, type Pricing } from "@/data/catalog";
 import { money } from "@/lib/format";
 import { requireAdmin } from "@/lib/server/auth";
 import { readProducts } from "@/lib/server/products";
+import { readPricing } from "@/lib/server/settings";
 import { photoTemplateFits } from "@/lib/server/template";
 
 export const metadata = { title: "Products" };
@@ -28,11 +29,11 @@ export default function AdminProducts({ searchParams }: PageProps<"/admin">) {
 
 async function ProductList({ searchParams }: { searchParams: PageProps<"/admin">["searchParams"] }) {
   await requireAdmin();
-  const [products, params] = await Promise.all([readProducts(), searchParams]);
+  const [products, pricing, params] = await Promise.all([readProducts(), readPricing(), searchParams]);
   const saved = typeof params.saved === "string" ? params.saved : null;
   const live = products.filter((p) => p.published);
   const emptyCategories = categoryOrder.filter((c) => !live.some((p) => p.category === c));
-  const unpriced = live.filter((p) => !ownPrices(p)).length;
+  const unpriced = live.filter((p) => !priceRange(pricing, p.category)).length;
   const withoutDesign = products.filter(photoTemplateFits).length;
 
   return (
@@ -47,7 +48,11 @@ async function ProductList({ searchParams }: { searchParams: PageProps<"/admin">
           <strong>
             {unpriced} live {unpriced === 1 ? "product has" : "products have"} no price yet.
           </strong>{" "}
-          The store shows them with “Price soon” and they can&apos;t be ordered until you add a price.
+          The store shows them with “Price soon” and they can&apos;t be ordered until their type has prices on the{" "}
+          <Link href="/admin/settings" className="font-semibold underline">
+            Prices
+          </Link>{" "}
+          page.
         </p>
       )}
       {/* Always there, so its "Made 4 designs" note survives the refresh that empties the count */}
@@ -95,14 +100,13 @@ async function ProductList({ searchParams }: { searchParams: PageProps<"/admin">
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-lg font-semibold">{p.name}</p>
                   <p className="text-sm text-muted">
-                    {categories[p.category].singular}, {priceSpan(p)}
-                    {p.sizes.length > 0 ? `, ${p.sizes.length} sizes` : ""}
+                    {categories[p.category].singular}, {priceSpan(pricing, p.category)}
                     {p.colours.length > 0 ? `, ${p.colours.length} colours` : ""}
                     {p.images.length > 1 ? `, ${p.images.length} photos` : ""}
                   </p>
                   <div className="mt-1 flex flex-wrap gap-1.5">
                     <Badge tone={p.published ? "bg-mint" : "bg-fog"}>{p.published ? "Live" : "Draft"}</Badge>
-                    {!ownPrices(p) && <Badge tone="bg-amber">No price</Badge>}
+                    {!priceRange(pricing, p.category) && <Badge tone="bg-amber">No price</Badge>}
                     {!p.available && <Badge tone="bg-amber">Sold out</Badge>}
                     {p.isNew && <Badge tone="bg-mint-soft">New</Badge>}
                     {p.customizable && <Badge tone="bg-fog">Customizable</Badge>}
@@ -118,8 +122,8 @@ async function ProductList({ searchParams }: { searchParams: PageProps<"/admin">
   );
 }
 
-function priceSpan(p: Parameters<typeof ownPrices>[0]) {
-  const span = ownPrices(p);
+function priceSpan(pricing: Pricing, category: Parameters<typeof priceRange>[1]) {
+  const span = priceRange(pricing, category);
   if (!span) return "no price yet";
   return span.min === span.max ? money(span.min) : `${money(span.min)}–${money(span.max)}`;
 }

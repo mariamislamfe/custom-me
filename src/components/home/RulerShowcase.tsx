@@ -34,7 +34,7 @@ export function RulerShowcase({ n: sectionNo }: { n: number }) {
   const purchase = usePurchase(active);
   const colour = purchase.selection.colour;
   // The lengths as set in the dashboard: the case grows with the one picked (60 of 100 cm shows at 80%)
-  const measure = optionMeasure(active, pricing, "length", purchase.selection);
+  const measure = optionMeasure(active, pricing, purchase.selection);
   const length = measure?.label ?? "";
   const scale = measure ? 0.5 + 0.5 * measure.share : 1;
   const near = usePreloadArt(items, CASE_SIZES);

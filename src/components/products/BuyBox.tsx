@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
-import { optionExtra, optionsFor, type Product } from "@/data/catalog";
+import { optionExtra, optionsFor, sizePrice, type Product } from "@/data/catalog";
 import { useStore } from "@/components/store/StoreProvider";
 import { PriceTag } from "./PriceTag";
 import { ease } from "@/lib/motion";
@@ -53,9 +53,9 @@ export function BuyBox({
           group={g}
           value={selection[g.id]}
           onChange={(v) => set(g.id, v)}
-          extra={(v) => (g.own ? 0 : optionExtra(pricing, product.category, g.id, v))}
+          extra={(v) => optionExtra(pricing, product.category, g.id, v)}
           // Sizes: every chip shows its full price
-          ownPrice={g.sizes ? (v) => v.price ?? product.price : undefined}
+          ownPrice={g.sizes ? (v) => sizePrice(pricing, product.category, v.id, "price") : undefined}
           tone={tone}
           compact={compact}
         />

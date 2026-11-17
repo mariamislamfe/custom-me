@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { categories, categoryOrder, COLOUR_TAGS, priceFor, defaultSelection, ownPrices, type CategoryId, type Product } from "@/data/catalog";
+import { categories, categoryOrder, COLOUR_TAGS, priceFor, defaultSelection, priceRange, type CategoryId, type Product } from "@/data/catalog";
 import { fitClass } from "@/components/products/shapes";
 import { ProductArt } from "@/components/products/ProductArt";
 import { useStore } from "@/components/store/StoreProvider";
@@ -188,7 +188,7 @@ function Tile({ product: p, n }: { product: Product; n: number }) {
   const wide = p.category === "sleeves" || p.category === "bags";
   const square = p.category === "stickers";
   // Sizes at different prices: show where they start
-  const span = ownPrices(p);
+  const span = priceRange(pricing, p.category);
   const fromPrice = span && span.min !== span.max ? span.min : null;
   // Pointing at a piece turns it round to its back
   const [turned, setTurned] = useState(false);

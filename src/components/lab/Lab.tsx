@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { categories, customPiece, customSizePrice, optionExtra, optionsFor, sizeGroupOf, type CategoryId } from "@/data/catalog";
+import { categories, customPiece, optionExtra, optionsFor, sizePrice, type CategoryId } from "@/data/catalog";
 import {
   allLayers,
   backFace,
@@ -317,9 +317,8 @@ function StepObject({ L, n, total }: StepProps) {
 /** A custom piece's choices: each size with its full price (Prices page), other choices with what they add. */
 function CustomOptions({ L }: { L: L }) {
   const { pricing } = useStore();
-  const sizes = sizeGroupOf(pricing.options[L.category], L.category);
   return optionsFor(customPiece(L.category, L.product), pricing).map((g) => {
-    const sized = g.id === sizes?.id;
+    const sized = Boolean(g.sizes);
     return (
       <OptionPicker
         key={g.id}
@@ -327,7 +326,7 @@ function CustomOptions({ L }: { L: L }) {
         value={L.selection[g.id]}
         onChange={(v) => L.setOption(g.id, v)}
         extra={(v) => (sized || g.own ? 0 : optionExtra(pricing, L.category, g.id, v))}
-        ownPrice={sized ? (v) => customSizePrice(pricing, L.category, v.id) : undefined}
+        ownPrice={sized ? (v) => sizePrice(pricing, L.category, v.id, "custom") : undefined}
       />
     );
   });

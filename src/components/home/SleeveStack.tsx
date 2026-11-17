@@ -37,7 +37,7 @@ export function SleeveStack({ n: sectionNo }: { n: number }) {
   const purchase = usePurchase(active);
   const colour = purchase.selection.colour;
   // The laptop sizes as set in the dashboard: the sleeve grows with the one picked
-  const measure = optionMeasure(active, pricing, "size", purchase.selection);
+  const measure = optionMeasure(active, pricing, purchase.selection);
   const scale = measure ? 0.2 + 0.8 * measure.share : 1;
   const cat = categories.sleeves;
   const near = usePreloadArt(items.slice(0, DEPTH + 2), SIZES);

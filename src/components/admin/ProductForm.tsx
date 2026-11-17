@@ -9,37 +9,23 @@ import { ProductMockup } from "@/components/products/ProductMockup";
 import { fitClass } from "@/components/products/shapes";
 import { PRODUCT_IMAGE } from "@/config/products";
 import { lab } from "@/config/customization";
-import { categories, categoryOrder, COLOUR_TAGS, sizeGroupOf, type CategoryId, type OptionGroup, type Pricing, type Product, type ProductImage } from "@/data/catalog";
+import { categories, categoryOrder, COLOUR_TAGS, type CategoryId, type Product, type ProductImage } from "@/data/catalog";
 import { uploadFile } from "@/lib/upload";
 import { Card, Field, FieldError, input, pill, smallButton, Toggle } from "./ui";
 import { TemplateEditor } from "./TemplateEditor";
 
 type Upload = { id: string; name: string; error?: string };
-/** Rows being edited; prices stay text until saved. */
-type SizeRow = { id: string; label: string; price: string; available: boolean };
 type ColourRow = { id: string; label: string; hex: string; available: boolean };
 
 const newId = () => Math.random().toString(36).slice(2, 10);
 
-/** A type's standard sizes as rows to price, so a new product starts with a full price box per size. */
-const standardSizes = (options: Pricing["options"], c: CategoryId): SizeRow[] =>
-  (sizeGroupOf(options[c], c)?.values ?? []).map((v) => ({ id: v.id, label: v.label, price: "", available: v.available !== false }));
-
-/** `options`: each type's option groups, as set on the Product options page. */
-export function ProductForm({ product, options }: { product?: Product; options: Pricing["options"] }) {
+/** A product's photos, details and colours. Its sizes and prices are the type's, set on the Prices page. */
+export function ProductForm({ product }: { product?: Product }) {
   const [state, action, saving] = useActionState<SaveState, FormData>(saveProduct, {});
   const [category, setCategory] = useState<CategoryId>(product?.category ?? categoryOrder[0]);
   const [images, setImages] = useState<ProductImage[]>(product?.images ?? []);
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [palette, setPalette] = useState<PaletteId>(product?.palette ?? "navy-mint");
-  const [sizes, setSizes] = useState<SizeRow[]>(() =>
-    product ? product.sizes.map((z) => ({ ...z, price: z.price == null ? "" : String(z.price) })) : standardSizes(options, categoryOrder[0]),
-  );
-  /** Another product type: a new product's untouched sizes become that type's sizes */
-  const pickCategory = (c: CategoryId) => {
-    setCategory(c);
-    if (!product && sizes.every((z) => !z.price.trim())) setSizes(() => standardSizes(options, c));
-  };
   const [colours, setColours] = useState<ColourRow[]>(product?.colours ?? []);
   const [removeBg, setRemoveBg] = useState(true);
   const [split, setSplit] = useState(true);
@@ -96,7 +82,6 @@ export function ProductForm({ product, options }: { product?: Product; options: 
       {product && <input type="hidden" name="id" value={product.id} />}
       <input type="hidden" name="images" value={JSON.stringify(images)} />
       <input type="hidden" name="palette" value={palette} />
-      <input type="hidden" name="sizes" value={JSON.stringify(sizes)} />
       <input type="hidden" name="colours" value={JSON.stringify(colours)} />
 
       {errors.form && (
@@ -109,7 +94,7 @@ export function ProductForm({ product, options }: { product?: Product; options: 
         <div role="radiogroup" aria-label="Product type" className="grid grid-cols-2 gap-3 sm:grid-cols-5">
           {categoryOrder.map((c) => (
             <label key={c} className="cursor-pointer">
-              <input type="radio" name="category" value={c} checked={category === c} onChange={() => pickCategory(c)} className="peer sr-only" />
+              <input type="radio" name="category" value={c} checked={category === c} onChange={() => setCategory(c)} className="peer sr-only" />
               <span className="flex h-full flex-col items-center gap-3 p-3 ring-2 ring-ink/15 transition-colors peer-checked:bg-mint-soft peer-checked:ring-ink peer-focus-visible:outline-3 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-mint hover:ring-ink/40">
                 <span className="flex h-20 w-full items-center justify-center">
                   <ProductMockup category={c} artwork="plain" palette={palette} className={fitClass(c) === "w-full" ? "w-full max-w-28" : "h-full"} />
@@ -243,29 +228,13 @@ export function ProductForm({ product, options }: { product?: Product; options: 
           <Field label="Name" error={errors.name} htmlFor="name">
             <input id="name" name="name" defaultValue={product?.name} maxLength={80} required className={input} aria-invalid={!!errors.name} onChange={() => touch("name")} />
           </Field>
-          {sizes.length === 0 ? (
-            <Field
-              label="Price (EGP)"
-              error={errors.price}
-              htmlFor="price"
-              hint="It comes in one size, at this price (add sizes below if it comes in more). Leave empty while the price isn’t decided: the product shows with “Price soon” and can’t be ordered."
-            >
-              <input
-                id="price"
-                name="price"
-                inputMode="numeric"
-                defaultValue={product?.price ?? ""}
-                placeholder="650"
-                className={`${input} max-w-48`}
-                aria-invalid={!!errors.price}
-                onChange={() => touch("price")}
-              />
-            </Field>
-          ) : (
-            <p className="text-sm">
-              <span className="font-semibold">Price:</span> set for each size, under “Sizes &amp; prices” below.
-            </p>
-          )}
+          <p className="text-sm">
+            <span className="font-semibold">Sizes &amp; price:</span> the same for every {categories[category].singular.toLowerCase()}, set on the{" "}
+            <Link href="/admin/settings" className="font-semibold underline">
+              Prices
+            </Link>{" "}
+            page.
+          </p>
           <Field label="Short line" htmlFor="blurb" hint="One sentence for the homepage and the product page.">
             <textarea id="blurb" name="blurb" defaultValue={product?.blurb} maxLength={240} rows={2} className={`${input} h-auto py-3`} />
           </Field>
@@ -287,7 +256,6 @@ export function ProductForm({ product, options }: { product?: Product; options: 
         </div>
       </Card>
 
-      <SizesCard standard={sizeGroupOf(options[category], category)} sizes={sizes} setSizes={setSizes} error={errors.sizes} />
       <ColoursCard colours={colours} setColours={setColours} error={errors.colours} />
 
       {lab.categories.includes(category) && (
@@ -352,62 +320,6 @@ export function ProductForm({ product, options }: { product?: Product; options: 
         )}
       </div>
     </form>
-  );
-}
-
-/** `standard`: the type's sizes (Product options page), to start from. */
-function SizesCard({ standard, sizes, setSizes, error }: { standard?: OptionGroup; sizes: SizeRow[]; setSizes: (fn: (s: SizeRow[]) => SizeRow[]) => void; error?: string }) {
-  const edit = (i: number, patch: Partial<SizeRow>) => setSizes((list) => list.map((z, k) => (k === i ? { ...z, ...patch } : z)));
-  return (
-    <Card
-      title="Sizes & prices"
-      hint={
-        sizes.length
-          ? "The customer picks one. Write each size’s full price: what the customer pays for it, not what it adds. Leave them all empty while the prices aren’t decided (“Price soon”). Choices like a strap still add their extra on top, from the Product options page."
-          : standard
-            ? `No sizes yet: it comes in one size, at the price above. Press “Start from the standard sizes” (${standard.values.map((v) => v.label).join(", ")}) to give each size its full price.`
-            : "No sizes yet: it comes in one size, at the price above. Add sizes if it comes in more than one."
-      }
-    >
-      {sizes.length > 0 && (
-        <ul className="mb-4 grid gap-3">
-          <li aria-hidden className="hidden grid-cols-[minmax(0,1fr)_9rem_auto_auto] gap-2 text-xs font-semibold text-muted sm:grid">
-            <span>Size</span>
-            <span>Full price (EGP)</span>
-            <span />
-            <span />
-          </li>
-          {sizes.map((z, i) => (
-            <li key={z.id} className="grid grid-cols-[minmax(0,1fr)_7.5rem] items-center gap-2 sm:grid-cols-[minmax(0,1fr)_9rem_auto_auto]">
-              <input aria-label={`Size ${i + 1} name`} value={z.label} maxLength={30} placeholder="e.g. A4, Large" className={input} onChange={(e) => edit(i, { label: e.target.value })} />
-              <input aria-label={`Full price of size ${z.label || i + 1} (EGP)`} value={z.price} inputMode="numeric" placeholder="e.g. 700" className={input} onChange={(e) => edit(i, { price: e.target.value })} />
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={z.available} onChange={(e) => edit(i, { available: e.target.checked })} className="size-4 accent-ink" />
-                In stock
-              </label>
-              <button type="button" className={smallButton} onClick={() => setSizes((list) => list.filter((_, k) => k !== i))} aria-label={`Remove size ${z.label || i + 1}`}>
-                Remove
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      <div className="flex flex-wrap gap-2">
-        <button type="button" className={smallButton} disabled={sizes.length >= 12} onClick={() => setSizes((list) => [...list, { id: newId(), label: "", price: "", available: true }])}>
-          + Add a size
-        </button>
-        {sizes.length === 0 && standard && (
-          <button
-            type="button"
-            className={smallButton}
-            onClick={() => setSizes(() => standard.values.map((v) => ({ id: v.id, label: v.label, price: "", available: v.available !== false })))}
-          >
-            Start from the standard sizes
-          </button>
-        )}
-      </div>
-      <FieldError msg={error} />
-    </Card>
   );
 }
 

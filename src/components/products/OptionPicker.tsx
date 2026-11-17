@@ -21,16 +21,15 @@ export function OptionPicker({
   group: OptionGroup;
   value: string;
   onChange: (v: string) => void;
-  /** What a value adds to the price (dashboard prices); defaults to the catalog value. */
+  /** What a value adds to the price (the strap). */
   extra?: (valueId: string) => number;
   tone?: "light" | "dark";
   /** Tighter chips, and price differences shown without the currency. */
   compact?: boolean;
-  /** A product's own sizes: each one's full price, shown on its chip. */
+  /** Sizes: each one's full price, shown on its chip. */
   ownPrice?: (v: OptionValue) => number | null;
 }) {
   const id = useId();
-  const current = group.values.find((v) => v.id === value);
   const move = (dir: 1 | -1) => {
     const avail = group.values.filter((v) => v.available !== false);
     const i = avail.findIndex((v) => v.id === value);
@@ -60,7 +59,7 @@ export function OptionPicker({
       >
         {group.values.map((v) => {
           const checked = v.id === value;
-          const delta = extra ? extra(v.id) : (v.priceDelta ?? 0);
+          const delta = extra ? extra(v.id) : 0;
           const own = ownPrice?.(v);
           return (
             <button
@@ -101,7 +100,6 @@ export function OptionPicker({
           );
         })}
       </div>
-      {current?.note && <p className={`mt-2 text-xs ${tone === "dark" ? "text-sheet/60" : "text-muted"}`}>{current.note}</p>}
     </div>
   );
 }

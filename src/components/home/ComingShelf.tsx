@@ -16,7 +16,7 @@ import { SectionHead } from "./SectionHead";
  */
 export function ComingShelf({ category, n }: { category: CategoryId; n: number }) {
   const cat = categories[category];
-  const sizes = sizeGroupOf(useStore().pricing.options[category], category);
+  const sizes = sizeGroupOf(useStore().pricing, category);
   return (
     <section className="relative overflow-hidden border-t-2 border-ink py-12 md:py-16" aria-labelledby={`${category}-title`}>
       <SectionHead

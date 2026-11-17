@@ -6,7 +6,7 @@ A custom design store for art bags, laptop sleeves, T-ruler cases, notebooks and
 
 ## About
 
-Custom Me is an online store for a small Egyptian brand that makes graphic, made-to-order pieces. Shoppers browse ready-made designs, or open any design in the Lab and make it their own: move, resize and recolour its parts, add their name or upload their own artwork, and see the result on the product before they order. The owner runs everything from one dashboard: products, product options, prices, delivery fees, payments, promo codes, orders and print-ready files.
+Custom Me is an online store for a small Egyptian brand that makes graphic, made-to-order pieces. Shoppers browse ready-made designs, or open any design in the Lab and make it their own: move, resize and recolour its parts, add their name or upload their own artwork, and see the result on the product before they order. The owner runs everything from one dashboard: products, prices (every size, ready-made and custom), delivery fees, payments, promo codes, orders and print-ready files.
 
 ## Tech stack
 
@@ -24,7 +24,7 @@ Custom Me is an online store for a small Egyptian brand that makes graphic, made
 - **Design Lab** — drag, resize and rotate artwork and text right on the product, in any colour; the customer's original files are kept untouched for printing.
 - **Editable shop designs** — designs uploaded as layers open in the Lab ready to change, so a customer can adapt an existing design instead of starting from scratch.
 - **Sticker studio** — try stickers on a laptop, notebook, bottle or phone before ordering the whole set.
-- **Admin dashboard** — products with automatic background removal, product options (sizes, pages, strap…), prices, delivery fees per governorate, promo codes and finance.
+- **Admin dashboard** — products with automatic background removal, one Prices page for every size (ready-made and custom) and the strap, delivery fees per governorate, promo codes and finance.
 - **Print-ready orders** — every custom order comes with a mockup and a transparent print file with each layer at the exact size, place and angle.
 - **Checkout** — cash on delivery or InstaPay (deposit or full payment with a discount), promo codes, and order tracking by order number or phone.
 - **New-order alerts** — the dashboard installs on a phone and sends a push notification for every order.

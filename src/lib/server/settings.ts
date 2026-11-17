@@ -5,10 +5,10 @@ import { EXPENSE_CATEGORIES } from "@/config/finance";
 import { GOVERNORATES, type DeliveryFees } from "@/config/orders";
 import { DEFAULT_PAYMENTS, type DepositAmount, type PaymentSettings } from "@/config/payments";
 import { site } from "@/config/site";
-import { categories, categoryOrder, DEFAULT_PRICING, sizeGroupOf, type CategoryId, type OptionGroup, type Pricing } from "@/data/catalog";
+import { categoryOrder, DEFAULT_PRICING, SIZE_GROUP, type CategoryId, type Pricing, type TypePrices, type TypeSize } from "@/data/catalog";
 import type { FinanceEntry, NewFinanceEntry } from "@/lib/finance";
 import { CODE_PATTERN, type PromoCode } from "@/lib/promo";
-import { getFile, putFile } from "./backend";
+import { getFile, putFile, readProductRows } from "./backend";
 
 /**
  * Store-wide settings saved from the dashboard (prices, delivery fees, push
@@ -21,6 +21,7 @@ const FINANCE_FILE = "finance.json";
 const PUSH_KEYS_FILE = "push-keys.json";
 const PUSH_SUBSCRIPTIONS_FILE = "push-subscriptions.json";
 const PROMO_CODES_FILE = "promo-codes.json";
+/** Sizes and options from the old Product options page, read only to carry prices over */
 const OPTIONS_FILE = "options.json";
 const STORE_FILE = "store.json";
 
@@ -42,100 +43,96 @@ const egp = (v: unknown) => typeof v === "number" && Number.isInteger(v) && v >=
 
 // ── Prices ───────────────────────────────────────────────────────
 
-// ── Product options ──────────────────────────────────────────────
-
-export const OPTION_ID = /^[a-z0-9-]{1,40}$/;
-export const OPTION_LIMITS = { groups: 6, values: 20 };
-
-/**
- * A type's option groups as saved on the Product options page; null when
- * the list is malformed. Ids stay fixed once made (orders and prices refer
- * to them); "colour" is taken by the colours set on each product.
- */
-export function validOptionGroups(list: unknown): OptionGroup[] | null {
-  if (!Array.isArray(list) || list.length > OPTION_LIMITS.groups) return null;
-  const out: OptionGroup[] = [];
-  for (const g of list as Record<string, unknown>[]) {
-    const id = String(g?.id ?? "");
-    const label = String(g?.label ?? "").trim().slice(0, 40);
-    if (!OPTION_ID.test(id) || id === "colour" || !label || out.some((x) => x.id === id)) return null;
-    if (!Array.isArray(g.values) || g.values.length === 0 || g.values.length > OPTION_LIMITS.values) return null;
-    const values: OptionGroup["values"] = [];
-    for (const v of g.values as Record<string, unknown>[]) {
-      const vid = String(v?.id ?? "");
-      const vlabel = String(v?.label ?? "").trim().slice(0, 40);
-      if (!OPTION_ID.test(vid) || !vlabel || values.some((x) => x.id === vid)) return null;
-      const note = String(v.note ?? "").trim().slice(0, 120);
-      values.push({ id: vid, label: vlabel, ...(note ? { note } : {}), ...(v.available === false ? { available: false } : {}) });
-    }
-    out.push({ id, label, values, ...(typeof g.sizes === "boolean" ? { sizes: g.sizes } : {}) });
-  }
-  // One option at most is the sizes
-  if (out.filter((g) => g.sizes).length > 1) return null;
-  return out;
-}
-
-/** Every type's option groups; a type never saved keeps the starting ones from data/catalog.ts. */
-export async function readCatalogOptions(): Promise<Pricing["options"]> {
-  const raw = (await readJson(OPTIONS_FILE)) as Partial<Record<CategoryId, unknown>> | null;
-  return Object.fromEntries(categoryOrder.map((c) => [c, (raw && validOptionGroups(raw[c])) ?? categories[c].options])) as Pricing["options"];
-}
-
-export const writeCatalogOptions = (options: Pricing["options"]) => writeJson(OPTIONS_FILE, options);
-
-// ── Prices ───────────────────────────────────────────────────────
+export const SIZE_ID = /^[a-z0-9-]{1,40}$/;
+export const MAX_SIZES = 12;
 
 /** A full price: a whole number of EGP above 0. */
 const fullPrice = (v: unknown): v is number => egp(v) && (v as number) > 0;
+const priceOrNull = (v: unknown) => (fullPrice(v) ? v : null);
 
-/** Custom-piece prices, the option groups and their extras; anything not saved yet uses DEFAULT_PRICING. */
-export async function readPricing(): Promise<Pricing> {
-  const [raw, options] = await Promise.all([readJson(PRICING_FILE) as Promise<Partial<Pricing> | null>, readCatalogOptions()]);
-  const pricing: Pricing = structuredClone(DEFAULT_PRICING);
-  pricing.options = options;
-  for (const c of categoryOrder) {
-    const custom = raw?.custom?.[c];
-    if (egp(custom) || custom === null) pricing.custom[c] = custom as number | null;
-    const sizes = sizeGroupOf(options[c], c);
-    // Each size's full price, for the sizes as they are now: a size added since has none until it's priced
-    pricing.customSizes[c] = {};
-    if (sizes) {
-      for (const v of sizes.values) {
-        let price: unknown = DEFAULT_PRICING.customSizes[c][v.id];
-        if (raw?.customSizes) price = raw.customSizes[c]?.[v.id];
-        else if (custom !== undefined) {
-          // Saved before sizes had full prices: the smallest size's price + what this size added
-          const added = raw?.extras?.[c]?.[`${sizes.id}:${v.id}`];
-          const was = sizeGroupOf(categories[c].options, c)?.values.find((x) => x.id === v.id)?.priceDelta ?? 0;
-          price = egp(custom) ? (custom as number) + (egp(added) ? (added as number) : was) : null;
-        }
-        if (fullPrice(price)) pricing.customSizes[c][v.id] = price;
-      }
-    }
-    // What the other choices add: a choice added since costs nothing extra until it's priced
-    const start = DEFAULT_PRICING.extras[c];
-    pricing.extras[c] = {};
-    for (const g of options[c]) {
-      if (g === sizes) continue;
-      for (const v of g.values) {
-        const key = `${g.id}:${v.id}`;
-        const extra = raw?.extras?.[c]?.[key];
-        pricing.extras[c][key] = egp(extra) ? (extra as number) : (start[key] ?? 0);
-      }
-    }
+/** A type's sizes and prices as saved; null when malformed. */
+function validTypePrices(raw: unknown): TypePrices | null {
+  const t = raw as Partial<Record<keyof TypePrices, unknown>> | null;
+  if (!t || !Array.isArray(t.sizes) || t.sizes.length > MAX_SIZES) return null;
+  const sizes: TypeSize[] = [];
+  for (const z of t.sizes as Record<string, unknown>[]) {
+    const id = String(z?.id ?? "");
+    const label = String(z?.label ?? "").trim().slice(0, 30);
+    if (!SIZE_ID.test(id) || !label || sizes.some((x) => x.id === id)) return null;
+    sizes.push({ id, label, price: priceOrNull(z.price), custom: priceOrNull(z.custom) });
   }
-  return pricing;
+  return { sizes, price: priceOrNull(t.price), custom: priceOrNull(t.custom) };
 }
 
-/** The option groups themselves live in their own file (the Product options page). */
-export function writePricing(pricing: Pricing) {
-  const { custom, customSizes, extras } = pricing;
-  return writeJson(PRICING_FILE, { custom, customSizes, extras });
+/** Every price; until the Prices page is saved in this shape, the prices from before (see `legacyPricing`). */
+export async function readPricing(): Promise<Pricing> {
+  const raw = (await readJson(PRICING_FILE)) as { types?: Partial<Record<CategoryId, unknown>>; strap?: unknown } | null;
+  if (!raw?.types) return legacyPricing(raw);
+  return {
+    types: Object.fromEntries(categoryOrder.map((c) => [c, validTypePrices(raw.types![c]) ?? structuredClone(DEFAULT_PRICING.types[c])])) as Pricing["types"],
+    strap: egp(raw.strap) ? (raw.strap as number) : DEFAULT_PRICING.strap,
+  };
 }
 
-/** Whether prices have been saved in the dashboard at least once. */
+export const writePricing = (pricing: Pricing) => writeJson(PRICING_FILE, pricing);
+
+/** Whether prices have been saved on the Prices page (as it is now) at least once. */
 export async function pricingSaved() {
-  return Boolean(await readJson(PRICING_FILE));
+  const raw = (await readJson(PRICING_FILE)) as { types?: unknown } | null;
+  return Boolean(raw?.types);
+}
+
+// ── Prices saved before the Prices page held everything ──────────
+
+type LegacyGroup = { id?: string; label?: string; sizes?: boolean; values?: { id?: string; label?: string }[] };
+type LegacyProduct = { category?: CategoryId; price?: unknown; sizes?: { id?: string; label?: string; price?: unknown }[] };
+
+/** The same measurements written another way: 12" = 12 inch, 80 = 80 cm. */
+const measures = (label: string) => (label.match(/\d+(?:[.,]\d+)?/g) ?? []).map((n) => parseFloat(n.replace(",", "."))).join("x");
+
+/** The price most products agree on. */
+function mostCommon(list: unknown[]): number | null {
+  const counts = new Map<number, number>();
+  for (const v of list) if (fullPrice(v)) counts.set(v, (counts.get(v) ?? 0) + 1);
+  let best: number | null = null;
+  for (const [v, n] of counts) if (best == null || n > counts.get(best)!) best = v;
+  return best;
+}
+
+/**
+ * Prices as they were kept before: sizes on the Product options page, custom
+ * prices on the Prices page, ready-made prices on each product. Shown on the
+ * Prices page until it's saved, so nothing has to be typed in again.
+ */
+async function legacyPricing(raw: Record<string, unknown> | null): Promise<Pricing> {
+  const [options, rows] = await Promise.all([readJson(OPTIONS_FILE) as Promise<Partial<Record<CategoryId, LegacyGroup[]>> | null>, readProductRows<LegacyProduct>()]);
+  const old = (raw ?? {}) as { custom?: Partial<Record<CategoryId, unknown>>; customSizes?: Partial<Record<CategoryId, Record<string, unknown>>>; extras?: Partial<Record<CategoryId, Record<string, unknown>>> };
+  const pricing = structuredClone(DEFAULT_PRICING);
+  for (const c of categoryOrder) {
+    const groups = Array.isArray(options?.[c]) ? options[c]! : null;
+    const products = rows.map((r) => r.data).filter((p) => p?.category === c);
+    // The sizes: the group marked as the sizes, or named like it
+    const group = groups ? (groups.some((g) => typeof g.sizes === "boolean") ? groups.find((g) => g.sizes) : (groups.find((g) => g.id === SIZE_GROUP[c]) ?? groups.find((g) => /size|length|مقاس|طول|حجم/i.test(String(g.label ?? ""))))) : undefined;
+    const sizes = group?.values?.filter((v) => SIZE_ID.test(String(v.id ?? "")) && String(v.label ?? "").trim()) ?? (groups ? [] : pricing.types[c].sizes);
+    const custom = old.custom?.[c];
+    const ready = (label: string, id: string) =>
+      mostCommon(products.flatMap((p) => (p.sizes ?? []).filter((z) => z.id === id || String(z.label ?? "").trim().toLowerCase() === label.toLowerCase() || measures(String(z.label ?? "")) === measures(label)).map((z) => z.price)));
+    pricing.types[c] = {
+      sizes: sizes.slice(0, MAX_SIZES).map((v) => {
+        const id = String(v.id);
+        const label = String(v.label).trim().slice(0, 30);
+        // Custom: saved per size, or (older) the smallest size's price + what this size added
+        const added = old.extras?.[c]?.[`${group?.id}:${id}`];
+        const customPrice = old.customSizes ? old.customSizes[c]?.[id] : fullPrice(custom) ? custom + (egp(added) ? (added as number) : 0) : null;
+        return { id, label, price: ready(label, id), custom: priceOrNull(customPrice) };
+      }),
+      price: mostCommon(products.filter((p) => !p.sizes?.length).map((p) => p.price)),
+      custom: priceOrNull(custom),
+    };
+  }
+  const strap = old.extras?.sleeves?.["strap:strap"];
+  pricing.strap = egp(strap) && (strap as number) > 0 ? (strap as number) : DEFAULT_PRICING.strap;
+  return pricing;
 }
 
 // ── Delivery fees ────────────────────────────────────────────────

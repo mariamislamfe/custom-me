@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { GOVERNORATES, type DeliveryFees } from "@/config/orders";
 import { lab } from "@/config/customization";
 import type { DepositAmount } from "@/config/payments";
-import { categories, categoryOrder, sizeGroupOf, type Pricing } from "@/data/catalog";
+import { categories, categoryOrder, DEFAULT_PRICING, type CategoryId, type TypeSize } from "@/data/catalog";
 import { adminConfigured, checkPassword, createSession, destroySession, requireAdmin } from "@/lib/server/auth";
 import { requestOrigin, sendPush } from "@/lib/server/notify";
 import { makePhotoTemplates } from "@/lib/server/template";
@@ -22,13 +22,11 @@ import {
 } from "@/lib/server/products";
 import {
   addPushSubscription,
-  OPTION_ID,
-  readPricing,
+  MAX_SIZES,
   readStoreInfo,
   removePushSubscriptions,
   SETTINGS_TAG,
-  validOptionGroups,
-  writeCatalogOptions,
+  SIZE_ID,
   writeDeliveryFees,
   writePricing,
   writeStoreInfo,
@@ -115,94 +113,61 @@ function egp(raw: FormDataEntryValue | null, { optional = false } = {}) {
   return Number.isFinite(n) && n >= 0 && n <= 1_000_000 ? Math.round(n) : null;
 }
 
-export async function savePricing(prev: SettingsState, form: FormData): Promise<SettingsState> {
-  await requireAdmin();
-  // What other choices (a strap…) add is set on the Product options page: kept as it is
-  const pricing: Pricing = await readPricing();
-  for (const c of categoryOrder) {
-    if (!lab.categories.includes(c)) {
-      pricing.custom[c] = null;
-      pricing.customSizes[c] = {};
-      continue;
-    }
-    const what = `a custom ${categories[c].singular.toLowerCase()}`;
-    const sizes = sizeGroupOf(pricing.options[c], c);
-    if (sizes) {
-      // A full price for each size; an empty one isn't on sale yet ("Price soon")
-      const prices: Record<string, number> = {};
-      for (const v of sizes.values) {
-        const price = egp(form.get(`customSize:${c}:${v.id}`), { optional: true });
-        if (price === null || price === 0) return { error: `Check the price of ${what} in ${v.label}: a number like 700, or leave it empty for now.` };
-        if (price !== undefined) prices[v.id] = price;
-      }
-      pricing.customSizes[c] = prices;
-    } else {
-      // Empty = not decided yet: custom pieces of that type can't be ordered
-      const custom = egp(form.get(`custom:${c}`), { optional: true });
-      if (custom === null || custom === 0) return { error: `Check the price of ${what}: a number like 700, or leave it empty for now.` };
-      pricing.custom[c] = custom ?? null;
-    }
-  }
-  await writePricing(pricing);
-  updateTag(SETTINGS_TAG);
-  return { saved: (prev.saved ?? 0) + 1 };
-}
+type PricesInput = {
+  types?: Partial<Record<CategoryId, { sizes?: { id?: string; label?: string; price?: string; custom?: string }[]; price?: string; custom?: string }>>;
+  strap?: string;
+};
 
-// ── Product options ──────────────────────────────────────────────
-
-type OptionsInput = Record<string, { id?: string; label?: string; sizes?: boolean; values?: { id?: string; label?: string; note?: string; available?: boolean; extra?: string }[] }[]>;
-
-const newOptionId = () => `o-${randomBytes(4).toString("hex")}`;
+const newSizeId = () => `s-${randomBytes(4).toString("hex")}`;
 
 /**
- * Each type's option groups (sizes, pages, strap…) and what each choice adds
- * to the price. Groups and choices keep their ids, so orders and saved bags
- * still match; new ones get a fresh id.
+ * Every price in the store: each type's sizes, each size's ready-made and
+ * custom price, and the strap. Sizes keep their ids, so bags and orders still
+ * match; a new size gets a fresh id.
  */
-export async function saveOptions(prev: SettingsState, form: FormData): Promise<SettingsState> {
+export async function savePricing(prev: SettingsState, form: FormData): Promise<SettingsState> {
   await requireAdmin();
-  let input: OptionsInput;
+  let input: PricesInput;
   try {
-    input = JSON.parse(String(form.get("options") ?? "{}"));
+    input = JSON.parse(String(form.get("pricing") ?? "{}"));
   } catch {
     return { error: "Something went wrong. Reload the page and try again." };
   }
-  const pricing = await readPricing();
-  const options = structuredClone(pricing.options);
+  const pricing = structuredClone(DEFAULT_PRICING);
+  // An empty box = not decided yet ("Price soon"); anything else must be a price above 0
+  const price = (raw: unknown, what: string): number | null | string => {
+    const n = egp(String(raw ?? ""), { optional: true });
+    if (n === undefined) return null;
+    return n === null || n === 0 ? `Check the price of ${what}: a number like 700, or leave it empty for now.` : n;
+  };
   for (const c of categoryOrder) {
-    const groups = Array.isArray(input?.[c]) ? input[c] : [];
+    const t = input.types?.[c] ?? {};
     const name = categories[c].label;
-    const extras: Record<string, number> = {};
-    const shaped = [];
-    // The option marked as the sizes (one at most): priced in full, on each product and on the Prices page
-    const sizesAt = groups.findIndex((g) => g.sizes === true);
-    for (const [gi, g] of groups.entries()) {
-      const sized = gi === sizesAt;
-      const label = String(g.label ?? "").trim();
-      if (!label) return { error: `${name}: give every option a name (like “Size”), or remove the empty one.` };
-      const values = Array.isArray(g.values) ? g.values : [];
-      if (!values.length) return { error: `${name}: “${label}” needs at least one choice.` };
-      const id = OPTION_ID.test(String(g.id ?? "")) && g.id !== "colour" ? String(g.id) : newOptionId();
-      const vals = [];
-      for (const v of values) {
-        const vlabel = String(v.label ?? "").trim();
-        if (!vlabel) return { error: `${name}: give every choice of “${label}” a name, or remove the empty one.` };
-        const vid = OPTION_ID.test(String(v.id ?? "")) ? String(v.id) : newOptionId();
-        if (!sized) {
-          const extra = egp(v.extra ?? "", { optional: true });
-          if (extra === null) return { error: `${name}: check the extra for ${label} “${vlabel}”: a number like 50, or 0.` };
-          extras[`${id}:${vid}`] = extra ?? 0;
-        }
-        vals.push({ id: vid, label: vlabel, note: String(v.note ?? ""), available: v.available !== false });
-      }
-      shaped.push({ id, label, sizes: sized, values: vals });
+    const customMade = lab.categories.includes(c);
+    const rows = Array.isArray(t.sizes) ? t.sizes : [];
+    if (rows.length > MAX_SIZES) return { error: `${name}: up to ${MAX_SIZES} sizes.` };
+    const sizes: TypeSize[] = [];
+    for (const z of rows) {
+      const label = String(z.label ?? "").trim().slice(0, 30);
+      if (!label) return { error: `${name}: give every size a name (like 35*50 or A4), or remove the empty one.` };
+      if (sizes.some((x) => x.label.toLowerCase() === label.toLowerCase())) return { error: `${name}: “${label}” is there twice.` };
+      const ready = price(z.price, `${name} ${label}`);
+      const custom = customMade ? price(z.custom, `a custom ${categories[c].singular.toLowerCase()} in ${label}`) : null;
+      if (typeof ready === "string") return { error: ready };
+      if (typeof custom === "string") return { error: custom };
+      const id = SIZE_ID.test(String(z.id ?? "")) && !sizes.some((x) => x.id === z.id) ? String(z.id) : newSizeId();
+      sizes.push({ id, label, price: ready, custom });
     }
-    const clean = validOptionGroups(shaped);
-    if (!clean) return { error: `${name}: check the options (up to 6 options with up to 20 choices each, no two with the same name).` };
-    options[c] = clean;
-    pricing.extras[c] = extras;
+    // One size: one ready-made price and one custom price
+    const ready = sizes.length ? null : price(t.price, name);
+    const custom = sizes.length || !customMade ? null : price(t.custom, `a custom ${categories[c].singular.toLowerCase()}`);
+    if (typeof ready === "string") return { error: ready };
+    if (typeof custom === "string") return { error: custom };
+    pricing.types[c] = { sizes, price: ready, custom };
   }
-  await writeCatalogOptions(options);
+  const strap = egp(String(input.strap ?? ""), { optional: true });
+  if (strap === null) return { error: "Check what the strap adds: a number like 50, or 0." };
+  pricing.strap = strap ?? 0;
   await writePricing(pricing);
   updateTag(SETTINGS_TAG);
   return { saved: (prev.saved ?? 0) + 1 };

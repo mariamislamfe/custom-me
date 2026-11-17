@@ -10,7 +10,6 @@ import {
   defaultSelection,
   productViews,
   selectionLabels,
-  sizeGroupOf,
   type CategoryId,
   type Pricing,
   type Product,
@@ -61,28 +60,10 @@ function designFor(product: Product, colour?: string): DesignBase | undefined {
   );
 }
 
-/**
- * A customized shop design's choices: its colours and the type's sizes (custom
- * pieces are priced per size on the Prices page). The size picked on the
- * product carries over when the type has the same one (by name, or id).
- */
+/** A customized shop design's choices: the ones picked on the product (same sizes, colours and strap), or the defaults. */
 function customSelection(pricing: Pricing, product: Product, selection: Record<string, string>) {
   const item = customPiece(product.category, product);
-  const sizes = sizeGroupOf(pricing.options[product.category], product.category);
-  const sel = { ...selection };
-  if (sizes) {
-    const picked = product.sizes.find((z) => z.id === selection[sizes.id]);
-    const same = (label: string) => label.trim().toLowerCase() === picked?.label.trim().toLowerCase();
-    // Or the same measurements written another way: 12" = 12 inch, 80 = 80 cm, 35*50 = 35 x 50
-    const numbers = (label: string) => (label.match(/\d+(?:[.,]\d+)?/g) ?? []).map((n) => parseFloat(n.replace(",", "."))).join("x");
-    const want = picked ? numbers(picked.label) : "";
-    const alike = want ? sizes.values.filter((v) => numbers(v.label) === want) : [];
-    const match =
-      (picked && sizes.values.find((v) => same(v.label))) ?? (alike.length === 1 ? alike[0] : undefined) ?? sizes.values.find((v) => v.id === selection[sizes.id]);
-    if (match) sel[sizes.id] = match.id;
-    else delete sel[sizes.id];
-  }
-  return cleanSelection(item, sel, pricing) ?? defaultSelection(item, pricing);
+  return cleanSelection(item, selection, pricing) ?? defaultSelection(item, pricing);
 }
 
 /** Customize a shop design: the piece as it's sold, ready for a name or more art on top. */

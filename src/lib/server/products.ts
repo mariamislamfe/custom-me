@@ -2,7 +2,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { cacheLife, cacheTag } from "next/cache";
 import { PALETTES, type PaletteId } from "@/components/art/artworks";
-import { categories, categoryOrder, COLOUR_TAGS, type CategoryId, type Product, type ProductColour, type ProductImage, type ProductSize } from "@/data/catalog";
+import { categories, categoryOrder, COLOUR_TAGS, type CategoryId, type Product, type ProductColour, type ProductImage } from "@/data/catalog";
 import { PRODUCT_IMAGE } from "@/config/products";
 import { HEX as HEX_COLOUR, lab, LIMITS, type DesignLayer, type DesignTemplate } from "@/config/customization";
 import { publicName, readProductRows, removeFiles, writeProductRows } from "./backend";
@@ -19,9 +19,15 @@ export async function readProducts(): Promise<Product[]> {
   return (await readProductRows<Product>()).map((r) => withDefaults(r.data));
 }
 
-/** Rows saved before sizes and colours existed get empty lists. */
-function withDefaults(p: Product): Product {
-  return { ...p, sizes: p.sizes ?? [], colours: p.colours ?? [] };
+/**
+ * Rows saved before colours existed get an empty list. The price and sizes
+ * each product had before the Prices page held them are left out.
+ */
+function withDefaults(p: Product & { price?: unknown; sizes?: unknown }): Product {
+  const out = { ...p, colours: p.colours ?? [] };
+  delete out.price;
+  delete out.sizes;
+  return out;
 }
 
 /** What the shop shows: published products, grouped by category. */
@@ -114,26 +120,6 @@ function parseRows(raw: string) {
   }
 }
 
-/** Sizes: a label and a full price each (or every price empty while they aren't decided). */
-function parseSizes(raw: string): ProductSize[] | string {
-  const rows = parseRows(raw);
-  if (!rows) return "Something went wrong with the sizes. Reload the page and try again.";
-  const out: ProductSize[] = [];
-  for (const r of rows) {
-    const label = String(r.label ?? "").trim().slice(0, 30);
-    if (!label) return "Give every size a name, or remove the empty one.";
-    const id = String(r.id ?? "");
-    const priceRaw = String(r.price ?? "").replace(/,/g, "").trim();
-    const price = Number(priceRaw);
-    if (priceRaw && (!Number.isFinite(price) || price <= 0 || price > 1_000_000)) return `Enter a price above 0 for ${label}, like 650.`;
-    if (!ID.test(id) || out.some((s) => s.id === id)) return "Something went wrong with the sizes. Reload the page and try again.";
-    out.push({ id, label, price: priceRaw ? Math.round(price) : null, available: r.available !== false });
-  }
-  const missing = out.find((s) => s.price == null);
-  if (missing && out.some((s) => s.price != null)) return `Give ${missing.label} its price too: every size needs its own full price (or leave them all empty for now).`;
-  return out;
-}
-
 function parseColours(raw: string): ProductColour[] | string {
   const rows = parseRows(raw);
   if (!rows) return "Something went wrong with the colours. Reload the page and try again.";
@@ -213,8 +199,6 @@ export function parseProductForm(form: FormData) {
   const errors: FieldErrors = {};
   const name = String(form.get("name") ?? "").trim().slice(0, 80);
   const category = String(form.get("category") ?? "") as CategoryId;
-  const priceRaw = String(form.get("price") ?? "").replace(/,/g, "").trim();
-  const price = Number(priceRaw);
   const blurb = String(form.get("blurb") ?? "").trim().slice(0, 240);
   const details = String(form.get("details") ?? "")
     .split("\n")
@@ -225,20 +209,14 @@ export function parseProductForm(form: FormData) {
   const paletteRaw = String(form.get("palette") ?? "");
   const palette = (paletteRaw in PALETTES ? paletteRaw : "navy-mint") as PaletteId;
   const tags = COLOUR_TAGS.map((t) => t.id as string).filter((t) => form.getAll("tags").includes(t));
-  const sizes = parseSizes(String(form.get("sizes") ?? "[]"));
   const colours = parseColours(String(form.get("colours") ?? "[]"));
   const template = parseTemplate(String(form.get("template") ?? ""));
 
   if (!name) errors.name = "Give the product a name.";
   if (!(category in categories)) errors.category = "Choose what kind of product it is.";
-  // Empty = no price yet: the product shows in the store but can't be ordered
-  const sizeList = typeof sizes === "string" ? [] : sizes;
-  // With sizes, each has its own price (the form hides the one price)
-  if (!sizeList.length && priceRaw && (!Number.isFinite(price) || price <= 0 || price > 1_000_000)) errors.price = "Enter a price above 0, like 650, or leave it empty for now.";
   if (!images) errors.images = "Something went wrong with the photos. Remove them and upload again.";
   else if (images.length === 0) errors.images = "Add at least one photo.";
   else if (images.length > PRODUCT_IMAGE.maxPerProduct) errors.images = `Use up to ${PRODUCT_IMAGE.maxPerProduct} photos.`;
-  if (typeof sizes === "string") errors.sizes = sizes;
   if (typeof colours === "string") errors.colours = colours;
   if (typeof template === "string") errors.template = template;
   const colourList = typeof colours === "string" ? [] : colours;
@@ -248,13 +226,10 @@ export function parseProductForm(form: FormData) {
     value: {
       name,
       category,
-      // With sizes: the smallest size price (for "From …" in the shop); null while they aren't priced
-      price: sizeList.length ? (sizeList.every((s) => s.price != null) ? Math.min(...sizeList.map((s) => s.price!)) : null) : priceRaw ? Math.round(price) : null,
       blurb,
       details,
       tags,
       palette,
-      sizes: sizeList,
       colours: colourList,
       // A photo tagged with a colour that was removed fits every colour again
       images: (images ?? []).map((img) => ({
