@@ -73,7 +73,12 @@ function customSelection(pricing: Pricing, product: Product, selection: Record<s
   if (sizes) {
     const picked = product.sizes.find((z) => z.id === selection[sizes.id]);
     const same = (label: string) => label.trim().toLowerCase() === picked?.label.trim().toLowerCase();
-    const match = (picked && sizes.values.find((v) => same(v.label))) ?? sizes.values.find((v) => v.id === selection[sizes.id]);
+    // Or the same measurements written another way: 12" = 12 inch, 80 = 80 cm, 35*50 = 35 x 50
+    const numbers = (label: string) => (label.match(/\d+(?:[.,]\d+)?/g) ?? []).map((n) => parseFloat(n.replace(",", "."))).join("x");
+    const want = picked ? numbers(picked.label) : "";
+    const alike = want ? sizes.values.filter((v) => numbers(v.label) === want) : [];
+    const match =
+      (picked && sizes.values.find((v) => same(v.label))) ?? (alike.length === 1 ? alike[0] : undefined) ?? sizes.values.find((v) => v.id === selection[sizes.id]);
     if (match) sel[sizes.id] = match.id;
     else delete sel[sizes.id];
   }
