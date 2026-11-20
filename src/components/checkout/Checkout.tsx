@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { motion } from "motion/react";
 import { useCart } from "@/lib/cart";
 import { money } from "@/lib/format";
@@ -14,6 +14,8 @@ import { EmptyBag } from "@/components/cart/EmptyBag";
 import { PreviewNotice } from "@/components/cart/PreviewNotice";
 import { useStore } from "@/components/store/StoreProvider";
 import { ease } from "@/lib/motion";
+import { track } from "@/lib/pixel";
+import { site } from "@/config/site";
 import type { PlaceOrderResult } from "@/app/api/orders/route";
 import type { PromoCheck } from "@/app/api/promo/route";
 
@@ -54,6 +56,19 @@ export function Checkout() {
   const [receipt, setReceipt] = useState<{ fileId: string; name: string } | null>(null);
   const [receiptBusy, setReceiptBusy] = useState(false);
   const receiptInput = useRef<HTMLInputElement>(null);
+
+  // Once a visit, when the bag has something in it
+  const checkoutTracked = useRef(false);
+  useEffect(() => {
+    if (!ready || !lines.length || checkoutTracked.current) return;
+    checkoutTracked.current = true;
+    track("InitiateCheckout", {
+      content_ids: lines.map((l) => l.slug ?? `custom-${l.category}`),
+      num_items: lines.reduce((n, l) => n + l.qty, 0),
+      value: subtotal,
+      currency: site.currency.code,
+    });
+  }, [ready, lines, subtotal]);
 
   const fee = form.governorate ? deliveryFees[form.governorate as Governorate] : undefined;
   const depositLines = lines.map((l) => ({ custom: l.kind === "custom", unitPrice: l.unitPrice, qty: l.qty }));
@@ -113,6 +128,17 @@ export function Checkout() {
       });
       const json = (await res.json()) as PlaceOrderResult;
       if (json.ok) {
+        track(
+          "Purchase",
+          {
+            content_ids: lines.map((l) => l.slug ?? `custom-${l.category}`),
+            content_type: "product",
+            num_items: lines.reduce((n, l) => n + l.qty, 0),
+            value: json.total,
+            currency: site.currency.code,
+          },
+          `order-${json.number}`,
+        );
         setDone(json);
         clear();
         window.scrollTo({ top: 0, behavior: "smooth" });

@@ -31,6 +31,9 @@ export const site = {
   instagram: null as string | null, // e.g. "https://instagram.com/<handle>"
   instagramHandle: null as string | null, // e.g. "@custom.me"
 
+  /** Meta (Facebook/Instagram) Pixel IDs used until the dashboard's Store page is saved with its own list. */
+  metaPixels: ["29008369922118382"] as readonly string[],
+
   currency: {
     code: "EGP", // PLACEHOLDER — confirm market currency
     locale: "en-EG",

@@ -30,6 +30,8 @@ import {
   writeDeliveryFees,
   writePricing,
   writeStoreInfo,
+  MAX_PIXELS,
+  PIXEL_ID,
   type PushDevice,
   type StoreInfo,
 } from "@/lib/server/settings";
@@ -212,6 +214,10 @@ export async function saveStoreInfo(prev: SettingsState, form: FormData): Promis
   }
   const whatsapp = field(form, "whatsapp", 20).replace(/[\s-]/g, "");
   if (whatsapp && !/^\+?\d{8,15}$/.test(whatsapp)) return { error: "Check the WhatsApp number: digits only, like 01012345678." };
+  const metaPixels = [...new Set(field(form, "metaPixels", 400).split(/[\s,]+/).filter(Boolean))];
+  const badPixel = metaPixels.find((id) => !PIXEL_ID.test(id));
+  if (badPixel) return { error: `“${badPixel.slice(0, 30)}” isn’t a Pixel ID: it’s only digits, like 1234567890123456.` };
+  if (metaPixels.length > MAX_PIXELS) return { error: `Up to ${MAX_PIXELS} Pixel IDs.` };
   const qr = field(form, "qr", 300);
   if (qr && !/^(\/media\/|https:\/\/)\S+$/.test(qr)) return { error: "Upload the QR code again." };
   const info: StoreInfo = {
@@ -232,6 +238,7 @@ export async function saveStoreInfo(prev: SettingsState, form: FormData): Promis
     facebook,
     tiktok,
     whatsapp,
+    metaPixels,
   };
   await writeStoreInfo(info);
   updateTag(SETTINGS_TAG);

@@ -166,7 +166,12 @@ export interface StoreInfo {
   tiktok: string;
   /** WhatsApp number for the "Need help?" button and the footer; empty hides them */
   whatsapp: string;
+  /** Meta Pixel IDs: every page view, add to bag, checkout and order on the store is sent to each one */
+  metaPixels: string[];
 }
+
+export const PIXEL_ID = /^\d{6,20}$/;
+export const MAX_PIXELS = 5;
 
 const text = (v: unknown, max: number, fallback = "") => (typeof v === "string" ? v.trim().slice(0, max) : fallback);
 
@@ -188,6 +193,7 @@ export async function readStoreInfo(): Promise<StoreInfo> {
     facebook?: unknown;
     tiktok?: unknown;
     whatsapp?: unknown;
+    metaPixels?: unknown;
   } | null;
   const p = raw?.payments ?? {};
   return {
@@ -209,6 +215,10 @@ export async function readStoreInfo(): Promise<StoreInfo> {
     facebook: text(raw?.facebook, 300),
     tiktok: text(raw?.tiktok, 300),
     whatsapp: text(raw?.whatsapp, 20),
+    // Saved before the pixels were on the Store page: the ones in the code
+    metaPixels: Array.isArray(raw?.metaPixels)
+      ? raw.metaPixels.filter((id): id is string => typeof id === "string" && PIXEL_ID.test(id)).slice(0, MAX_PIXELS)
+      : [...site.metaPixels],
   };
 }
 

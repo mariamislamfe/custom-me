@@ -3,7 +3,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useState, type ReactNode } from "react";
 import type { Customization } from "@/config/customization";
 import { MAX_QTY } from "@/config/orders";
+import { site } from "@/config/site";
 import type { CategoryId } from "@/data/catalog";
+import { track } from "./pixel";
 
 /**
  * Cart state. Lives in the browser (localStorage); checkout sends it to
@@ -123,6 +125,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const add = useCallback((line: CartLine) => {
     dispatch({ type: "add", line });
+    track("AddToCart", {
+      content_ids: [line.slug ?? `custom-${line.category}`],
+      content_name: line.name,
+      content_type: "product",
+      value: line.unitPrice * line.qty,
+      currency: site.currency.code,
+    });
     setLastAdded(line);
     setOpen(true);
   }, []);

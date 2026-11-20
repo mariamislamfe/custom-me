@@ -179,6 +179,25 @@ export function StoreForm({ info }: { info: StoreInfo }) {
         </Field>
       </Card>
 
+      <Card
+        title="Meta Pixel (Facebook & Instagram ads)"
+        hint="Paste the Pixel ID from Meta Events Manager. The store then reports page views, add to bag, checkout and every order placed (with its total) to it, so your ads can measure sales. One ID per line, up to 5. Leave it empty to turn tracking off."
+      >
+        <Field label="Pixel IDs" htmlFor="metaPixels" hint="Digits only, e.g. 1234567890123456.">
+          <textarea
+            id="metaPixels"
+            name="metaPixels"
+            defaultValue={info.metaPixels.join("\n")}
+            rows={3}
+            maxLength={400}
+            inputMode="numeric"
+            spellCheck={false}
+            placeholder="1234567890123456"
+            className={`${input} max-w-80 font-mono`}
+          />
+        </Field>
+      </Card>
+
       <div className="sticky bottom-0 z-10 -mx-4 flex flex-wrap items-center gap-3 border-t-2 border-ink bg-paper/95 px-4 py-3 sm:-mx-5 sm:px-5 sm:py-4 backdrop-blur-sm">
         <button type="submit" className="btn btn-ink" disabled={saving || qrBusy}>
           {saving ? "Saving…" : "Save"}
